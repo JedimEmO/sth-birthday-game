@@ -581,11 +581,52 @@ const css = `
     }
 
     .spellDeck {
-      top: max(184px, calc(env(safe-area-inset-top) + 184px));
+      top: max(170px, calc(env(safe-area-inset-top) + 170px));
       left: max(10px, env(safe-area-inset-left));
       right: max(10px, env(safe-area-inset-right));
       width: auto;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      padding: 3px;
+      gap: 3px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      background: rgba(24, 22, 29, 0.44);
+      border-color: rgba(255, 231, 148, 0.14);
+      box-shadow: none;
+      backdrop-filter: blur(6px);
+    }
+
+    .spellSlot {
+      min-height: 32px;
+      padding: 3px 3px 4px;
+      border-radius: 6px;
+      text-align: center;
+      background: rgba(24, 22, 31, 0.58);
+    }
+
+    .spellSlot.isActive {
+      background: rgba(54, 38, 34, 0.72);
+    }
+
+    .spellSlot b {
+      width: 15px;
+      height: 15px;
+      margin-right: 2px;
+      font-size: 8px;
+    }
+
+    .spellSlot strong {
+      font-size: 9px;
+    }
+
+    .spellSlot span {
+      margin-top: 2px;
+      font-size: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .spellSlot em {
+      height: 2px;
     }
 
     .chip {

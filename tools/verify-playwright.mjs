@@ -40,6 +40,7 @@ for (const config of [
   await page.goto(html, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("canvas");
   await page.waitForTimeout(700);
+  await waitForDrawableCanvas(page);
 
   const titlePixels = await sampleCanvas(page);
   await page.screenshot({ path: resolve(outDir, `${config.name}-title.png`), fullPage: true });
@@ -66,9 +67,11 @@ for (const config of [
   const spellUi = await page.evaluate(() => {
     const deck = document.querySelector("#spellDeck");
     const slots = [...document.querySelectorAll("#spellDeck [data-spell-index]")];
+    const rect = deck instanceof HTMLElement ? deck.getBoundingClientRect() : null;
 
     return {
       visible: deck instanceof HTMLElement && getComputedStyle(deck).display !== "none",
+      bounds: rect ? { width: rect.width, height: rect.height, top: rect.top, bottom: rect.bottom } : null,
       slotCount: slots.length,
       activeCount: slots.filter((slot) => slot.classList.contains("isActive")).length,
       labels: slots.map((slot) => slot.textContent?.replace(/\s+/g, " ").trim() ?? "")
@@ -159,7 +162,8 @@ for (const result of results) {
     result.spellUi.visible
     && result.spellUi.slotCount >= requiredSpellIds.length
     && result.spellUi.activeCount === 1
-    && ["Waffle Bolt", "Syrup Nova", "Candle Spiral", "Griddle Slam"].every((name) => result.spellUi.labels.some((label) => label.includes(name)));
+    && ["Waffle Bolt", "Syrup Nova", "Candle Spiral", "Griddle Slam"].every((name) => result.spellUi.labels.some((label) => label.includes(name)))
+    && (result.viewport.name !== "mobile" || (result.spellUi.bounds && result.spellUi.bounds.height <= 52));
   const spellUpgradeOk =
     result.spellUpgrade.upgraded === true
     && result.spellUpgrade.after.levels.syrupNova === result.spellUpgrade.before.levels.syrupNova + 1
@@ -238,5 +242,18 @@ async function sampleCanvas(page) {
       uniqueColors: colors.size,
       hash
     };
+  });
+}
+
+async function waitForDrawableCanvas(page) {
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector("canvas");
+
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return false;
+    }
+
+    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    return Boolean(gl && gl.drawingBufferWidth > 0 && gl.drawingBufferHeight > 0);
   });
 }
