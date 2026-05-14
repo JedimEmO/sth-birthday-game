@@ -1,0 +1,22 @@
+{
+  "name": "sindres-waffle-adventure",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build-single-html.mjs",
+    "check": "tsc --noEmit",
+    "check:sprite": "python3 tools/check-sprite-edges.py",
+    "dev": "python3 -m http.server 5173 --directory dist",
+    "verify": "node tools/verify-playwright.mjs"
+  },
+  "dependencies": {
+    "three": "^0.164.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.184.1",
+    "esbuild": "^0.21.5",
+    "playwright-core": "^1.60.0",
+    "typescript": "^5.4.5"
+  }
+}

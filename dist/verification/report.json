@@ -1,0 +1,52 @@
+[
+  {
+    "viewport": {
+      "name": "desktop",
+      "width": 1280,
+      "height": 800
+    },
+    "titlePixels": {
+      "width": 1280,
+      "height": 800,
+      "samples": 9062,
+      "nonBlankRatio": 0.9979033325976605,
+      "uniqueColors": 36,
+      "hash": 51971604
+    },
+    "playingPixels": {
+      "width": 1280,
+      "height": 800,
+      "samples": 9062,
+      "nonBlankRatio": 0.9981240344294857,
+      "uniqueColors": 48,
+      "hash": 71846703
+    },
+    "errors": [],
+    "changedSamples": 19875099
+  },
+  {
+    "viewport": {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    },
+    "titlePixels": {
+      "width": 780,
+      "height": 1688,
+      "samples": 9019,
+      "nonBlankRatio": 0.8518682780796097,
+      "uniqueColors": 55,
+      "hash": 650907421
+    },
+    "playingPixels": {
+      "width": 780,
+      "height": 1688,
+      "samples": 9019,
+      "nonBlankRatio": 0.8500942454817607,
+      "uniqueColors": 70,
+      "hash": 119747935
+    },
+    "errors": [],
+    "changedSamples": 531159486
+  }
+]

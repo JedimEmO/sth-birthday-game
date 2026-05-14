@@ -1,0 +1,2116 @@
+import * as THREE from "three";
+import heroSheetUrl from "../assets/generated/sindre-hero/sheet-transparent.png";
+
+const app = document.querySelector<HTMLDivElement>("#app");
+
+if (!app) {
+  throw new Error("Missing #app root");
+}
+
+type Mode = "title" | "playing" | "boon" | "won" | "lost";
+type EnemyKind = "burger" | "shade" | "mage" | "boss";
+type Team = "player" | "enemy";
+type BoonId =
+  | "batter"
+  | "birthday"
+  | "burgerDash"
+  | "doubleStack"
+  | "goldenGrid"
+  | "syrup";
+
+type V2 = THREE.Vector2;
+
+interface Enemy {
+  id: number;
+  kind: EnemyKind;
+  sprite: THREE.Sprite;
+  pos: V2;
+  vel: V2;
+  radius: number;
+  hp: number;
+  maxHp: number;
+  speed: number;
+  damage: number;
+  attackCooldown: number;
+  specialTimer: number;
+  stun: number;
+  phase: number;
+}
+
+interface Projectile {
+  sprite: THREE.Sprite;
+  pos: V2;
+  vel: V2;
+  radius: number;
+  damage: number;
+  team: Team;
+  life: number;
+  maxLife: number;
+  pierce: number;
+  spin: number;
+  hitIds: Set<number>;
+}
+
+interface Particle {
+  sprite: THREE.Sprite;
+  pos: V2;
+  vel: V2;
+  life: number;
+  maxLife: number;
+  startScale: number;
+  endScale: number;
+}
+
+interface Trap {
+  sprite: THREE.Sprite;
+  pos: V2;
+  radius: number;
+  life: number;
+  tick: number;
+}
+
+interface RoomPlan {
+  name: string;
+  subtitle: string;
+  enemies: EnemyKind[];
+}
+
+interface Boon {
+  id: BoonId;
+  name: string;
+  line: string;
+  apply: () => void;
+}
+
+const css = `
+  :root {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: #fff8dc;
+  }
+
+  * {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    color: #fff8dc;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45);
+  }
+
+  .topbar {
+    position: absolute;
+    top: max(14px, env(safe-area-inset-top));
+    left: max(14px, env(safe-area-inset-left));
+    right: max(14px, env(safe-area-inset-right));
+    display: grid;
+    grid-template-columns: minmax(190px, 320px) 1fr auto;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .panel {
+    background: rgba(24, 22, 29, 0.76);
+    border: 1px solid rgba(255, 231, 148, 0.28);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(10px);
+  }
+
+  .healthPanel {
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .meter {
+    height: 16px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #301f2a;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  .meterFill {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ed4f63, #ffd166);
+    transition: width 120ms ease;
+  }
+
+  .stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 12px;
+    letter-spacing: 0;
+    color: #f6e7b1;
+  }
+
+  .roomPanel {
+    justify-self: center;
+    max-width: min(430px, 48vw);
+    padding: 10px 14px;
+    border-radius: 8px;
+    text-align: center;
+  }
+
+  .roomName {
+    font-size: clamp(16px, 2.2vw, 24px);
+    font-weight: 800;
+    line-height: 1.05;
+  }
+
+  .roomSub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #d7e7ff;
+  }
+
+  .cooldowns {
+    justify-self: end;
+    display: flex;
+    gap: 8px;
+  }
+
+  .chip {
+    min-width: 68px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 12px;
+    color: #f9eab8;
+  }
+
+  .chip b {
+    display: block;
+    font-size: 15px;
+    color: #ffffff;
+  }
+
+  #centerOverlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    padding: 22px;
+  }
+
+  .modal {
+    pointer-events: auto;
+    width: min(720px, calc(100vw - 32px));
+    border-radius: 8px;
+    padding: clamp(18px, 4vw, 34px);
+    text-align: center;
+  }
+
+  .title {
+    margin: 0;
+    font-size: clamp(34px, 7vw, 72px);
+    line-height: 0.92;
+    letter-spacing: 0;
+  }
+
+  .tagline {
+    margin: 12px auto 0;
+    max-width: 560px;
+    color: #e4eeff;
+    font-size: clamp(14px, 2vw, 18px);
+  }
+
+  .actions {
+    margin-top: 22px;
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  button {
+    appearance: none;
+    border: 0;
+    border-radius: 8px;
+    background: #ffd166;
+    color: #211518;
+    font: inherit;
+    font-weight: 850;
+    padding: 12px 16px;
+    cursor: pointer;
+    box-shadow: 0 5px 0 #a86325, 0 14px 28px rgba(0, 0, 0, 0.22);
+  }
+
+  button:active {
+    transform: translateY(3px);
+    box-shadow: 0 2px 0 #a86325, 0 8px 18px rgba(0, 0, 0, 0.2);
+  }
+
+  .boonGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .boonButton {
+    min-height: 146px;
+    padding: 16px 14px;
+    background: #251d30;
+    color: #fff7d1;
+    border: 1px solid rgba(255, 219, 112, 0.42);
+    box-shadow: 0 5px 0 #6e3c73, 0 16px 24px rgba(0, 0, 0, 0.22);
+    text-align: left;
+  }
+
+  .boonButton strong {
+    display: block;
+    margin-bottom: 8px;
+    color: #ffd166;
+    font-size: 17px;
+    line-height: 1.1;
+  }
+
+  .boonButton span {
+    color: #d7e7ff;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  #touchControls {
+    position: fixed;
+    inset: auto 0 max(18px, env(safe-area-inset-bottom)) 0;
+    display: none;
+    pointer-events: none;
+    padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
+    justify-content: space-between;
+    align-items: end;
+  }
+
+  #stick {
+    pointer-events: auto;
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    border: 1px solid rgba(255, 240, 170, 0.28);
+    background: rgba(20, 18, 28, 0.58);
+    position: relative;
+    touch-action: none;
+  }
+
+  #knob {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: #ffd166;
+    border: 3px solid #fff6c6;
+    position: absolute;
+    left: 38px;
+    top: 38px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  }
+
+  .touchButtons {
+    pointer-events: auto;
+    display: grid;
+    grid-template-columns: repeat(2, 74px);
+    gap: 9px;
+  }
+
+  .touchButtons button {
+    min-height: 58px;
+    padding: 9px;
+    font-size: 13px;
+  }
+
+  .touchButtons button:first-child {
+    grid-column: span 2;
+  }
+
+  @media (pointer: coarse), (max-width: 760px) {
+    #touchControls {
+      display: flex;
+    }
+
+    .topbar {
+      grid-template-columns: 1fr;
+      right: max(10px, env(safe-area-inset-right));
+      left: max(10px, env(safe-area-inset-left));
+      gap: 8px;
+    }
+
+    .healthPanel,
+    .roomPanel,
+    .cooldowns {
+      justify-self: stretch;
+      max-width: none;
+    }
+
+    .cooldowns {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .chip {
+      min-width: 0;
+      padding: 7px;
+    }
+
+    .boonGrid {
+      grid-template-columns: 1fr;
+    }
+
+    .modal {
+      max-height: calc(100vh - 28px);
+      overflow: auto;
+    }
+  }
+`;
+
+const style = document.createElement("style");
+style.textContent = css;
+document.head.append(style);
+
+const hud = document.createElement("div");
+hud.id = "hud";
+hud.innerHTML = `
+  <div class="topbar">
+    <div class="panel healthPanel">
+      <div class="meter"><div id="hpFill" class="meterFill"></div></div>
+      <div class="stats">
+        <span id="hpText">100 / 100</span>
+        <span id="scoreText">0 syrup</span>
+      </div>
+    </div>
+    <div class="panel roomPanel">
+      <div id="roomName" class="roomName">Sindre's Waffle Adventure</div>
+      <div id="roomSub" class="roomSub">Birthday underworld loading...</div>
+    </div>
+    <div class="cooldowns">
+      <div class="panel chip"><b id="attackChip">Ready</b>Strike</div>
+      <div class="panel chip"><b id="dashChip">Ready</b>Dash</div>
+      <div class="panel chip"><b id="specialChip">Ready</b>Special</div>
+    </div>
+  </div>
+`;
+document.body.append(hud);
+
+const overlay = document.createElement("div");
+overlay.id = "centerOverlay";
+document.body.append(overlay);
+
+const touch = document.createElement("div");
+touch.id = "touchControls";
+touch.innerHTML = `
+  <div id="stick"><div id="knob"></div></div>
+  <div class="touchButtons">
+    <button data-act="attack">Strike</button>
+    <button data-act="dash">Dash</button>
+    <button data-act="special">Special</button>
+    <button data-act="trap">Trap</button>
+  </div>
+`;
+document.body.append(touch);
+
+const hpFill = mustElement<HTMLDivElement>("hpFill");
+const hpText = mustElement<HTMLSpanElement>("hpText");
+const scoreText = mustElement<HTMLSpanElement>("scoreText");
+const roomName = mustElement<HTMLDivElement>("roomName");
+const roomSub = mustElement<HTMLDivElement>("roomSub");
+const attackChip = mustElement<HTMLSpanElement>("attackChip");
+const dashChip = mustElement<HTMLSpanElement>("dashChip");
+const specialChip = mustElement<HTMLSpanElement>("specialChip");
+const stick = mustElement<HTMLDivElement>("stick");
+const knob = mustElement<HTMLDivElement>("knob");
+
+function mustElement<T extends HTMLElement>(id: string): T {
+  const element = document.getElementById(id);
+
+  if (!element) {
+    throw new Error(`Missing #${id}`);
+  }
+
+  return element as T;
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.domElement.setAttribute("aria-label", "Sindre's Waffle Adventure game canvas");
+app.append(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#181721");
+
+const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 100);
+camera.position.set(0, 0, 20);
+camera.lookAt(0, 0, 0);
+
+const arenaGroup = new THREE.Group();
+const propGroup = new THREE.Group();
+const actorGroup = new THREE.Group();
+const fxGroup = new THREE.Group();
+scene.add(arenaGroup, propGroup, actorGroup, fxGroup);
+
+const world = {
+  width: 32,
+  height: 20,
+  halfWidth: 16,
+  halfHeight: 10
+};
+
+const rooms: RoomPlan[] = [
+  {
+    name: "The Batter Gate",
+    subtitle: "Burger shades smell fresh syrup.",
+    enemies: ["burger", "burger", "shade", "shade"]
+  },
+  {
+    name: "Griddle Crossing",
+    subtitle: "The waffle floor is heating up.",
+    enemies: ["burger", "burger", "mage", "shade", "shade"]
+  },
+  {
+    name: "The Cheeseburger Styx",
+    subtitle: "A crunchy ambush rises.",
+    enemies: ["burger", "burger", "burger", "mage", "mage", "shade"]
+  },
+  {
+    name: "Birthday Throne",
+    subtitle: "The triple-stack champion wants the last waffle.",
+    enemies: ["boss"]
+  }
+];
+
+const keys = new Set<string>();
+const pointerWorld = new THREE.Vector2(2, -1);
+const lastAim = new THREE.Vector2(1, 0);
+const moveInput = new THREE.Vector2();
+const tmp = new THREE.Vector2();
+const tmp2 = new THREE.Vector2();
+
+const heroTexture = new THREE.TextureLoader().load(heroSheetUrl);
+heroTexture.colorSpace = THREE.SRGBColorSpace;
+heroTexture.minFilter = THREE.LinearFilter;
+heroTexture.magFilter = THREE.LinearFilter;
+heroTexture.repeat.set(0.25, 0.25);
+
+const heroMaterial = new THREE.SpriteMaterial({
+  map: heroTexture,
+  transparent: true,
+  depthTest: false
+});
+
+const hero = new THREE.Sprite(heroMaterial);
+hero.scale.set(1.72, 1.72, 1);
+hero.center.set(0.5, 0.28);
+hero.renderOrder = 2000;
+actorGroup.add(hero);
+
+const textures = {
+  burger: makeBurgerTexture(false),
+  boss: makeBurgerTexture(true),
+  shade: makeShadeTexture(),
+  mage: makeMageTexture(),
+  waffle: makeWaffleTexture(),
+  slash: makeSlashTexture(),
+  syrup: makeSyrupTexture(),
+  spark: makeSparkTexture(),
+  trap: makeTrapTexture(),
+  boon: makeBoonTexture()
+};
+
+const player = {
+  pos: new THREE.Vector2(0, -2),
+  vel: new THREE.Vector2(),
+  radius: 0.58,
+  hp: 110,
+  maxHp: 110,
+  speed: 5.6,
+  damage: 24,
+  attackRange: 2.35,
+  attackCooldown: 0,
+  attackRate: 0.34,
+  dashCooldown: 0,
+  dashTimer: 0,
+  dashVel: new THREE.Vector2(),
+  dashBurst: false,
+  specialCooldown: 0,
+  specialRate: 1.65,
+  trapCooldown: 0,
+  invulnerable: 0,
+  score: 0,
+  room: 0,
+  roomsCleared: 0,
+  frameTime: 0,
+  facingRow: 0,
+  echoStrike: false,
+  trapPower: 1,
+  syrupPower: 1
+};
+
+let mode: Mode = "title";
+let enemyId = 0;
+let waveClearTimer = 0;
+let shake = 0;
+let titlePulse = 0;
+
+const enemies: Enemy[] = [];
+const projectiles: Projectile[] = [];
+const particles: Particle[] = [];
+const traps: Trap[] = [];
+const props: THREE.Object3D[] = [];
+const boonsOwned = new Set<BoonId>();
+
+buildArena();
+showTitle();
+resize();
+
+window.addEventListener("resize", resize);
+window.addEventListener("keydown", (event) => {
+  if (event.code === "Space") {
+    event.preventDefault();
+  }
+
+  if (event.code === "Enter" && (mode === "title" || mode === "won" || mode === "lost")) {
+    startGame();
+    return;
+  }
+
+  keys.add(event.code);
+
+  if (mode !== "playing") {
+    return;
+  }
+
+  if (event.code === "Space" || event.code === "ShiftLeft" || event.code === "ShiftRight") {
+    dash();
+  } else if (event.code === "KeyQ" || event.code === "KeyK") {
+    special();
+  } else if (event.code === "KeyE" || event.code === "KeyL") {
+    dropTrap();
+  } else if (event.code === "KeyJ") {
+    strike();
+  }
+});
+
+window.addEventListener("keyup", (event) => {
+  keys.delete(event.code);
+});
+
+renderer.domElement.addEventListener("pointermove", (event) => {
+  updatePointer(event.clientX, event.clientY);
+});
+
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  updatePointer(event.clientX, event.clientY);
+
+  if (mode === "title") {
+    startGame();
+    return;
+  }
+
+  if (mode !== "playing") {
+    return;
+  }
+
+  if (event.button === 0) {
+    strike();
+  } else if (event.button === 2) {
+    special();
+  }
+});
+
+renderer.domElement.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+});
+
+setupTouchControls();
+
+let last = performance.now();
+requestAnimationFrame(loop);
+
+function loop(now: number): void {
+  const dt = Math.min((now - last) / 1000, 0.033);
+  last = now;
+  titlePulse += dt;
+
+  if (mode === "playing") {
+    updateGame(dt);
+  } else {
+    updateHeroSprite(dt);
+    updateParticles(dt);
+    updateCamera(dt);
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+function startGame(): void {
+  mode = "playing";
+  overlay.innerHTML = "";
+  player.pos.set(0, -3);
+  player.vel.set(0, 0);
+  player.hp = 110;
+  player.maxHp = 110;
+  player.speed = 5.6;
+  player.damage = 24;
+  player.attackRange = 2.35;
+  player.attackCooldown = 0;
+  player.attackRate = 0.34;
+  player.dashCooldown = 0;
+  player.dashTimer = 0;
+  player.specialCooldown = 0;
+  player.specialRate = 1.65;
+  player.trapCooldown = 0;
+  player.invulnerable = 0;
+  player.score = 0;
+  player.room = 0;
+  player.roomsCleared = 0;
+  player.frameTime = 0;
+  player.facingRow = 0;
+  player.echoStrike = false;
+  player.dashBurst = false;
+  player.trapPower = 1;
+  player.syrupPower = 1;
+  boonsOwned.clear();
+  clearArray(enemies, removeEnemy);
+  clearArray(projectiles, removeProjectile);
+  clearArray(particles, removeParticle);
+  clearArray(traps, removeTrap);
+  spawnRoom(0);
+  updateHud();
+}
+
+function spawnRoom(index: number): void {
+  clearArray(enemies, removeEnemy);
+  clearArray(projectiles, removeProjectile);
+  clearArray(traps, removeTrap);
+  player.room = index;
+  waveClearTimer = 0;
+
+  const plan = rooms[index] ?? rooms[0]!;
+  roomName.textContent = plan.name;
+  roomSub.textContent = plan.subtitle;
+
+  for (let i = 0; i < plan.enemies.length; i += 1) {
+    const kind = plan.enemies[i]!;
+    const angle = (i / Math.max(plan.enemies.length, 1)) * Math.PI * 2 + randomRange(-0.25, 0.25);
+    const radius = kind === "boss" ? 0 : randomRange(5.5, 8.4);
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius + 1.2;
+    spawnEnemy(kind, new THREE.Vector2(x, y));
+  }
+
+  for (let i = 0; i < 20; i += 1) {
+    spawnParticle(
+      new THREE.Vector2(randomRange(-world.halfWidth + 2, world.halfWidth - 2), randomRange(-world.halfHeight + 2, world.halfHeight - 2)),
+      new THREE.Vector2(randomRange(-0.4, 0.4), randomRange(0.2, 0.9)),
+      randomRange(0.7, 1.2),
+      randomRange(0.08, 0.16),
+      randomRange(0.01, 0.04),
+      "#ffdf7d"
+    );
+  }
+}
+
+function updateGame(dt: number): void {
+  updateCooldowns(dt);
+  updateInput();
+  updatePlayer(dt);
+  updateHeroSprite(dt);
+  updateEnemies(dt);
+  updateProjectiles(dt);
+  updateTraps(dt);
+  updateParticles(dt);
+  updateCamera(dt);
+  updateHud();
+
+  if (player.hp <= 0 && mode === "playing") {
+    loseGame();
+  }
+
+  if (mode === "playing" && enemies.length === 0) {
+    waveClearTimer += dt;
+
+    if (waveClearTimer > 0.65) {
+      finishRoom();
+    }
+  }
+}
+
+function updateCooldowns(dt: number): void {
+  player.attackCooldown = Math.max(0, player.attackCooldown - dt);
+  player.dashCooldown = Math.max(0, player.dashCooldown - dt);
+  player.specialCooldown = Math.max(0, player.specialCooldown - dt);
+  player.trapCooldown = Math.max(0, player.trapCooldown - dt);
+  player.invulnerable = Math.max(0, player.invulnerable - dt);
+  shake = Math.max(0, shake - dt * 4.5);
+}
+
+function updateInput(): void {
+  moveInput.set(0, 0);
+
+  if (keys.has("KeyA") || keys.has("ArrowLeft")) {
+    moveInput.x -= 1;
+  }
+
+  if (keys.has("KeyD") || keys.has("ArrowRight")) {
+    moveInput.x += 1;
+  }
+
+  if (keys.has("KeyW") || keys.has("ArrowUp")) {
+    moveInput.y += 1;
+  }
+
+  if (keys.has("KeyS") || keys.has("ArrowDown")) {
+    moveInput.y -= 1;
+  }
+
+  moveInput.add(touchMove);
+
+  if (moveInput.lengthSq() > 1) {
+    moveInput.normalize();
+  }
+}
+
+function updatePlayer(dt: number): void {
+  if (player.dashTimer > 0) {
+    player.dashTimer -= dt;
+    player.vel.copy(player.dashVel);
+    player.invulnerable = Math.max(player.invulnerable, 0.07);
+  } else {
+    player.vel.copy(moveInput).multiplyScalar(player.speed);
+  }
+
+  player.pos.addScaledVector(player.vel, dt);
+  keepInArena(player.pos, player.radius);
+
+  if (player.vel.lengthSq() > 0.08) {
+    lastAim.copy(player.vel).normalize();
+  } else {
+    tmp.copy(pointerWorld).sub(player.pos);
+
+    if (tmp.lengthSq() > 0.05) {
+      lastAim.copy(tmp.normalize());
+    }
+  }
+
+  hero.position.set(player.pos.x, player.pos.y, 3);
+  hero.renderOrder = renderOrderFor(player.pos.y, 100);
+  hero.material.opacity = player.invulnerable > 0 ? 0.68 + Math.sin(titlePulse * 44) * 0.18 : 1;
+}
+
+function updateHeroSprite(dt: number): void {
+  const moving = player.vel.lengthSq() > 0.16 || mode !== "playing";
+  player.frameTime += dt * (moving ? 9.5 : 3);
+
+  if (Math.abs(lastAim.x) > Math.abs(lastAim.y)) {
+    player.facingRow = lastAim.x < 0 ? 1 : 2;
+  } else {
+    player.facingRow = lastAim.y > 0 ? 3 : 0;
+  }
+
+  const col = moving ? Math.floor(player.frameTime) % 4 : 0;
+  heroTexture.offset.set(col * 0.25, 1 - (player.facingRow + 1) * 0.25);
+  hero.scale.setScalar(mode === "title" ? 1.95 + Math.sin(titlePulse * 2.5) * 0.05 : 1.72);
+
+  if (mode === "title") {
+    hero.position.set(0, -1.25 + Math.sin(titlePulse * 2.1) * 0.05, 3);
+  }
+}
+
+function updateEnemies(dt: number): void {
+  for (const enemy of [...enemies]) {
+    enemy.attackCooldown = Math.max(0, enemy.attackCooldown - dt);
+    enemy.specialTimer -= dt;
+    enemy.stun = Math.max(0, enemy.stun - dt);
+    enemy.phase += dt;
+
+    if (enemy.stun > 0) {
+      enemy.pos.addScaledVector(enemy.vel, dt);
+      enemy.vel.multiplyScalar(0.86);
+      keepInArena(enemy.pos, enemy.radius);
+      syncEnemySprite(enemy);
+      continue;
+    }
+
+    const toPlayer = tmp.copy(player.pos).sub(enemy.pos);
+    const distance = Math.max(0.001, toPlayer.length());
+    const dir = toPlayer.divideScalar(distance);
+    enemy.vel.set(0, 0);
+
+    if (enemy.kind === "mage") {
+      const preferred = 5.6;
+
+      if (distance < preferred - 0.8) {
+        enemy.vel.addScaledVector(dir, -enemy.speed * 0.9);
+      } else if (distance > preferred + 0.8) {
+        enemy.vel.addScaledVector(dir, enemy.speed);
+      }
+
+      enemy.vel.x += Math.sin(enemy.phase * 2.8) * 0.7;
+
+      if (enemy.specialTimer <= 0) {
+        enemy.specialTimer = randomRange(1.25, 2.1);
+        enemyShoot(enemy);
+      }
+    } else if (enemy.kind === "boss") {
+      enemy.vel.addScaledVector(dir, distance > 2.6 ? enemy.speed : -enemy.speed * 0.25);
+
+      if (enemy.specialTimer <= 0) {
+        enemy.specialTimer = enemy.hp < enemy.maxHp * 0.45 ? 1.4 : 2.2;
+        bossAttack(enemy);
+      }
+    } else {
+      const wobble = enemy.kind === "shade" ? Math.sin(enemy.phase * 5 + enemy.id) * 0.9 : Math.sin(enemy.phase * 3) * 0.35;
+      enemy.vel.addScaledVector(dir, enemy.speed);
+      enemy.vel.add(new THREE.Vector2(-dir.y, dir.x).multiplyScalar(wobble));
+    }
+
+    avoidCrowd(enemy);
+    enemy.pos.addScaledVector(enemy.vel, dt);
+    keepInArena(enemy.pos, enemy.radius);
+
+    if (distance < enemy.radius + player.radius + 0.18 && enemy.attackCooldown <= 0) {
+      damagePlayer(enemy.damage);
+      enemy.attackCooldown = enemy.kind === "boss" ? 0.7 : 0.95;
+      knockEnemy(enemy, dir.clone().multiplyScalar(-2.6));
+    }
+
+    syncEnemySprite(enemy);
+  }
+}
+
+function avoidCrowd(enemy: Enemy): void {
+  for (const other of enemies) {
+    if (enemy === other) {
+      continue;
+    }
+
+    const delta = tmp2.copy(enemy.pos).sub(other.pos);
+    const distSq = delta.lengthSq();
+    const min = enemy.radius + other.radius + 0.2;
+
+    if (distSq > 0.001 && distSq < min * min) {
+      enemy.vel.addScaledVector(delta.normalize(), 1.8 / Math.max(0.4, Math.sqrt(distSq)));
+    }
+  }
+}
+
+function updateProjectiles(dt: number): void {
+  for (const projectile of [...projectiles]) {
+    projectile.life -= dt;
+    projectile.pos.addScaledVector(projectile.vel, dt);
+    projectile.sprite.position.set(projectile.pos.x, projectile.pos.y, 4);
+    projectile.sprite.material.opacity = THREE.MathUtils.clamp(projectile.life / Math.min(projectile.maxLife, 0.35), 0, 1);
+    projectile.sprite.material.rotation += projectile.spin * dt;
+    projectile.sprite.renderOrder = renderOrderFor(projectile.pos.y, 150);
+
+    if (Math.abs(projectile.pos.x) > world.halfWidth + 1 || Math.abs(projectile.pos.y) > world.halfHeight + 1 || projectile.life <= 0) {
+      removeProjectile(projectile);
+      continue;
+    }
+
+    if (projectile.team === "player") {
+      for (const enemy of [...enemies]) {
+        if (projectile.hitIds.has(enemy.id)) {
+          continue;
+        }
+
+        if (projectile.pos.distanceTo(enemy.pos) < projectile.radius + enemy.radius) {
+          projectile.hitIds.add(enemy.id);
+          damageEnemy(enemy, projectile.damage, projectile.vel.clone().normalize().multiplyScalar(3.5));
+          projectile.pierce -= 1;
+          burst(enemy.pos, "#ffd166", 7);
+
+          if (projectile.pierce < 0) {
+            removeProjectile(projectile);
+            break;
+          }
+        }
+      }
+    } else if (projectile.pos.distanceTo(player.pos) < projectile.radius + player.radius) {
+      damagePlayer(projectile.damage);
+      burst(player.pos, "#a9dcff", 8);
+      removeProjectile(projectile);
+    }
+  }
+}
+
+function updateTraps(dt: number): void {
+  for (const trap of [...traps]) {
+    trap.life -= dt;
+    trap.tick -= dt;
+    trap.sprite.material.opacity = THREE.MathUtils.clamp(trap.life / 0.4, 0, 1) * 0.82;
+    trap.sprite.material.rotation += dt * 1.2;
+    trap.sprite.scale.setScalar(2.1 + Math.sin(titlePulse * 6) * 0.08);
+
+    if (trap.tick <= 0) {
+      trap.tick = 0.22;
+
+      for (const enemy of enemies) {
+        const dist = enemy.pos.distanceTo(trap.pos);
+
+        if (dist < trap.radius + enemy.radius) {
+          damageEnemy(enemy, 8 * player.trapPower, tmp.copy(enemy.pos).sub(trap.pos).normalize().multiplyScalar(1.4));
+          enemy.stun = Math.max(enemy.stun, 0.08);
+        }
+      }
+    }
+
+    if (trap.life <= 0) {
+      removeTrap(trap);
+    }
+  }
+}
+
+function updateParticles(dt: number): void {
+  for (const particle of [...particles]) {
+    particle.life -= dt;
+    particle.pos.addScaledVector(particle.vel, dt);
+    particle.vel.multiplyScalar(0.96);
+    const t = 1 - particle.life / particle.maxLife;
+    const scale = THREE.MathUtils.lerp(particle.startScale, particle.endScale, t);
+    particle.sprite.position.set(particle.pos.x, particle.pos.y, 6);
+    particle.sprite.scale.setScalar(scale);
+    particle.sprite.material.opacity = Math.max(0, 1 - t);
+    particle.sprite.renderOrder = 3000;
+
+    if (particle.life <= 0) {
+      removeParticle(particle);
+    }
+  }
+}
+
+function updateCamera(dt: number): void {
+  const targetX = mode === "title" ? 0 : player.pos.x * 0.22;
+  const targetY = mode === "title" ? 0 : player.pos.y * 0.22;
+  camera.position.x += (targetX - camera.position.x) * Math.min(1, dt * 4);
+  camera.position.y += (targetY - camera.position.y) * Math.min(1, dt * 4);
+
+  if (shake > 0) {
+    camera.position.x += randomRange(-shake, shake) * 0.08;
+    camera.position.y += randomRange(-shake, shake) * 0.08;
+  }
+}
+
+function finishRoom(): void {
+  player.roomsCleared += 1;
+  player.score += 75 + player.roomsCleared * 25;
+
+  if (player.room >= rooms.length - 1) {
+    winGame();
+    return;
+  }
+
+  mode = "boon";
+  showBoonChoices();
+}
+
+function showTitle(): void {
+  mode = "title";
+  roomName.textContent = "Sindre's Waffle Adventure";
+  roomSub.textContent = "A birthday dive through the waffle underworld.";
+  overlay.innerHTML = `
+    <div class="panel modal">
+      <h1 class="title">Sindre's Waffle Adventure</h1>
+      <p class="tagline">Waffle shield raised, spatula lit, burger shades incoming.</p>
+      <div class="actions">
+        <button id="startButton">Begin Run</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("startButton")?.addEventListener("click", startGame);
+}
+
+function showBoonChoices(): void {
+  const choices = pickBoons();
+  roomName.textContent = "Birthday Boon";
+  roomSub.textContent = "Choose one gift before the next room.";
+  overlay.innerHTML = `
+    <div class="panel modal">
+      <h2 class="title" style="font-size: clamp(28px, 5vw, 48px)">Waffle Blessing</h2>
+      <p class="tagline">The griddle glows with questionable generosity.</p>
+      <div class="boonGrid">
+        ${choices.map((boon, index) => `
+          <button class="boonButton" data-boon="${index}">
+            <strong>${boon.name}</strong>
+            <span>${boon.line}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+
+  overlay.querySelectorAll<HTMLButtonElement>("[data-boon]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.boon ?? 0);
+      const boon = choices[index];
+
+      if (!boon) {
+        return;
+      }
+
+      boon.apply();
+      boonsOwned.add(boon.id);
+      mode = "playing";
+      overlay.innerHTML = "";
+      player.hp = Math.min(player.maxHp, player.hp + 18);
+      spawnRoom(player.room + 1);
+    });
+  });
+}
+
+function winGame(): void {
+  mode = "won";
+  overlay.innerHTML = `
+    <div class="panel modal">
+      <h1 class="title">Happy Birthday, Sindre!</h1>
+      <p class="tagline">The last hamburger yielded. The waffles are safe. Syrup score: ${player.score}.</p>
+      <div class="actions"><button id="restartButton">Run Again</button></div>
+    </div>
+  `;
+  document.getElementById("restartButton")?.addEventListener("click", startGame);
+  roomName.textContent = "Victory Feast";
+  roomSub.textContent = "The birthday table is defended.";
+}
+
+function loseGame(): void {
+  mode = "lost";
+  overlay.innerHTML = `
+    <div class="panel modal">
+      <h1 class="title">The Burger Stack Wins</h1>
+      <p class="tagline">Sindre can still claim the rematch waffle. Syrup score: ${player.score}.</p>
+      <div class="actions"><button id="retryButton">Try Again</button></div>
+    </div>
+  `;
+  document.getElementById("retryButton")?.addEventListener("click", startGame);
+  roomName.textContent = "Run Over";
+  roomSub.textContent = "The griddle waits for another attempt.";
+}
+
+function pickBoons(): Boon[] {
+  const pool: Boon[] = [
+    {
+      id: "batter",
+      name: "Crisp Batter",
+      line: "Strikes hit harder and leave a warmer crunch.",
+      apply: () => {
+        player.damage += 8;
+      }
+    },
+    {
+      id: "birthday",
+      name: "Birthday Candle",
+      line: "Maximum health rises and the flame patches you up.",
+      apply: () => {
+        player.maxHp += 22;
+        player.hp += 34;
+      }
+    },
+    {
+      id: "burgerDash",
+      name: "Burger Momentum",
+      line: "Dashes burst through nearby enemies.",
+      apply: () => {
+        player.dashBurst = true;
+      }
+    },
+    {
+      id: "doubleStack",
+      name: "Double Stack",
+      line: "Every strike echoes with a second small hit.",
+      apply: () => {
+        player.echoStrike = true;
+      }
+    },
+    {
+      id: "goldenGrid",
+      name: "Golden Grid",
+      line: "Waffle traps last longer and bite harder.",
+      apply: () => {
+        player.trapPower += 0.65;
+      }
+    },
+    {
+      id: "syrup",
+      name: "Syrup Current",
+      line: "Special waffles recharge faster and pierce deeper.",
+      apply: () => {
+        player.specialRate = Math.max(0.8, player.specialRate - 0.32);
+        player.syrupPower += 0.55;
+      }
+    }
+  ];
+
+  const shuffled = pool
+    .filter((boon) => boon.id === "batter" || boon.id === "birthday" || !boonsOwned.has(boon.id))
+    .sort(() => Math.random() - 0.5);
+
+  return shuffled.slice(0, 3);
+}
+
+function updateHud(): void {
+  const hpPercent = Math.max(0, player.hp / player.maxHp);
+  hpFill.style.width = `${Math.round(hpPercent * 100)}%`;
+  hpText.textContent = `${Math.ceil(Math.max(0, player.hp))} / ${player.maxHp}`;
+  scoreText.textContent = `${player.score} syrup`;
+  attackChip.textContent = player.attackCooldown <= 0 ? "Ready" : player.attackCooldown.toFixed(1);
+  dashChip.textContent = player.dashCooldown <= 0 ? "Ready" : player.dashCooldown.toFixed(1);
+  specialChip.textContent = player.specialCooldown <= 0 ? "Ready" : player.specialCooldown.toFixed(1);
+}
+
+function strike(): void {
+  if (mode !== "playing" || player.attackCooldown > 0) {
+    return;
+  }
+
+  player.attackCooldown = player.attackRate;
+  const aim = aimDirection();
+  lastAim.copy(aim);
+  const origin = player.pos.clone().addScaledVector(aim, 0.25);
+  spawnSlash(origin, aim, 1);
+
+  let hit = false;
+
+  for (const enemy of [...enemies]) {
+    const delta = tmp.copy(enemy.pos).sub(player.pos);
+    const dist = delta.length();
+
+    if (dist > player.attackRange + enemy.radius) {
+      continue;
+    }
+
+    const angle = delta.normalize().dot(aim);
+
+    if (angle > 0.42) {
+      hit = true;
+      damageEnemy(enemy, player.damage, aim.clone().multiplyScalar(4.6));
+
+      if (player.echoStrike) {
+        window.setTimeout(() => {
+          if (mode === "playing" && enemies.includes(enemy)) {
+            damageEnemy(enemy, player.damage * 0.38, aim.clone().multiplyScalar(2));
+            spawnSlash(enemy.pos.clone(), aim, 0.58);
+          }
+        }, 90);
+      }
+    }
+  }
+
+  if (hit) {
+    shake = Math.max(shake, 0.18);
+  }
+}
+
+function dash(): void {
+  if (mode !== "playing" || player.dashCooldown > 0) {
+    return;
+  }
+
+  const dir = moveInput.lengthSq() > 0.04 ? moveInput.clone().normalize() : aimDirection();
+  player.dashTimer = 0.16;
+  player.dashVel.copy(dir).multiplyScalar(18);
+  player.dashCooldown = 0.85;
+  player.invulnerable = 0.22;
+  lastAim.copy(dir);
+  burst(player.pos, "#a7f3d0", 12);
+
+  if (player.dashBurst) {
+    for (const enemy of enemies) {
+      if (enemy.pos.distanceTo(player.pos) < 2.5 + enemy.radius) {
+        damageEnemy(enemy, 18, tmp.copy(enemy.pos).sub(player.pos).normalize().multiplyScalar(5));
+      }
+    }
+  }
+}
+
+function special(): void {
+  if (mode !== "playing" || player.specialCooldown > 0) {
+    return;
+  }
+
+  const dir = aimDirection();
+  const projectile = createProjectile({
+    texture: textures.waffle,
+    pos: player.pos.clone().addScaledVector(dir, 0.7),
+    vel: dir.multiplyScalar(9.6),
+    radius: 0.48,
+    scale: 0.82,
+    damage: 30 * player.syrupPower,
+    team: "player",
+    life: 1.6,
+    pierce: Math.floor(1 + player.syrupPower),
+    spin: 9
+  });
+  projectile.sprite.material.color.set("#fff3a4");
+  player.specialCooldown = player.specialRate;
+  burst(player.pos, "#ffd166", 8);
+}
+
+function dropTrap(): void {
+  if (mode !== "playing" || player.trapCooldown > 0) {
+    return;
+  }
+
+  const material = new THREE.SpriteMaterial({
+    map: textures.trap,
+    transparent: true,
+    depthTest: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.position.set(player.pos.x, player.pos.y, 1.5);
+  sprite.scale.setScalar(2.1);
+  sprite.renderOrder = 50;
+  fxGroup.add(sprite);
+  traps.push({
+    sprite,
+    pos: player.pos.clone(),
+    radius: 1.55,
+    life: 3.5 + player.trapPower,
+    tick: 0.05
+  });
+  player.trapCooldown = 2.9;
+}
+
+function damageEnemy(enemy: Enemy, amount: number, knockback: V2): void {
+  enemy.hp -= amount;
+  enemy.vel.add(knockback);
+  enemy.stun = Math.max(enemy.stun, enemy.kind === "boss" ? 0.08 : 0.16);
+  enemy.sprite.scale.multiplyScalar(1.04);
+  burst(enemy.pos, enemy.kind === "boss" ? "#ff7d66" : "#ffd166", enemy.kind === "boss" ? 10 : 6);
+
+  if (enemy.hp <= 0) {
+    player.score += enemy.kind === "boss" ? 500 : enemy.kind === "mage" ? 65 : 40;
+    burst(enemy.pos, "#fff2a8", enemy.kind === "boss" ? 34 : 16);
+    removeEnemy(enemy);
+  }
+}
+
+function damagePlayer(amount: number): void {
+  if (player.invulnerable > 0 || mode !== "playing") {
+    return;
+  }
+
+  player.hp -= amount;
+  player.invulnerable = 0.62;
+  shake = Math.max(shake, 0.32);
+  burst(player.pos, "#ff6f8f", 12);
+}
+
+function knockEnemy(enemy: Enemy, force: V2): void {
+  enemy.vel.add(force);
+  enemy.stun = Math.max(enemy.stun, 0.14);
+}
+
+function aimDirection(): V2 {
+  const aim = tmp.copy(pointerWorld).sub(player.pos);
+
+  if (aim.lengthSq() < 0.08) {
+    aim.copy(lastAim);
+  }
+
+  return aim.normalize().clone();
+}
+
+function spawnEnemy(kind: EnemyKind, pos: V2): Enemy {
+  const boss = kind === "boss";
+  const mage = kind === "mage";
+  const shade = kind === "shade";
+  const texture = kind === "boss" ? textures.boss : kind === "mage" ? textures.mage : kind === "shade" ? textures.shade : textures.burger;
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false
+  });
+  const sprite = new THREE.Sprite(material);
+  const scale = boss ? 3.1 : mage ? 1.34 : shade ? 1.18 : 1.38;
+  sprite.scale.setScalar(scale);
+  sprite.center.set(0.5, 0.36);
+  actorGroup.add(sprite);
+
+  const enemy: Enemy = {
+    id: ++enemyId,
+    kind,
+    sprite,
+    pos,
+    vel: new THREE.Vector2(),
+    radius: boss ? 1.18 : mage ? 0.56 : shade ? 0.48 : 0.58,
+    hp: boss ? 480 : mage ? 74 : shade ? 48 : 66,
+    maxHp: boss ? 480 : mage ? 74 : shade ? 48 : 66,
+    speed: boss ? 1.45 : mage ? 2.05 : shade ? 3.05 : 2.45,
+    damage: boss ? 18 : mage ? 10 : shade ? 9 : 12,
+    attackCooldown: randomRange(0.2, 0.8),
+    specialTimer: randomRange(0.8, 1.8),
+    stun: 0,
+    phase: randomRange(0, Math.PI * 2)
+  };
+  enemies.push(enemy);
+  syncEnemySprite(enemy);
+  burst(pos, boss ? "#ff8066" : "#ffd166", boss ? 24 : 8);
+  return enemy;
+}
+
+function syncEnemySprite(enemy: Enemy): void {
+  const hop = Math.sin(enemy.phase * (enemy.kind === "boss" ? 3.2 : 5.8)) * 0.045;
+  const base = enemy.kind === "boss" ? 3.1 : enemy.kind === "mage" ? 1.34 : enemy.kind === "shade" ? 1.18 : 1.38;
+  const hurtPulse = enemy.stun > 0 ? 1.08 : 1;
+  enemy.sprite.position.set(enemy.pos.x, enemy.pos.y + hop, 3);
+  enemy.sprite.scale.setScalar(base * hurtPulse);
+  enemy.sprite.renderOrder = renderOrderFor(enemy.pos.y, 90);
+  enemy.sprite.material.opacity = THREE.MathUtils.clamp(0.55 + (enemy.hp / enemy.maxHp) * 0.45, 0.55, 1);
+}
+
+function enemyShoot(enemy: Enemy): void {
+  const dir = player.pos.clone().sub(enemy.pos).normalize();
+  createProjectile({
+    texture: textures.syrup,
+    pos: enemy.pos.clone().addScaledVector(dir, 0.6),
+    vel: dir.multiplyScalar(enemy.kind === "boss" ? 6.2 : 5.6),
+    radius: 0.34,
+    scale: 0.58,
+    damage: enemy.kind === "boss" ? 14 : 10,
+    team: "enemy",
+    life: 3,
+    pierce: 0,
+    spin: -4
+  });
+}
+
+function bossAttack(enemy: Enemy): void {
+  const hpRatio = enemy.hp / enemy.maxHp;
+  const count = hpRatio < 0.45 ? 12 : 8;
+  const base = Math.atan2(player.pos.y - enemy.pos.y, player.pos.x - enemy.pos.x);
+
+  for (let i = 0; i < count; i += 1) {
+    const angle = base + (i - (count - 1) / 2) * 0.22;
+    const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+    createProjectile({
+      texture: textures.syrup,
+      pos: enemy.pos.clone().addScaledVector(dir, 1.1),
+      vel: dir.multiplyScalar(5.2 + i * 0.06),
+      radius: 0.34,
+      scale: 0.62,
+      damage: 12,
+      team: "enemy",
+      life: 2.8,
+      pierce: 0,
+      spin: 4
+    });
+  }
+
+  if (hpRatio < 0.65 && enemies.length < 8) {
+    const angle = randomRange(0, Math.PI * 2);
+    spawnEnemy(Math.random() > 0.45 ? "shade" : "burger", enemy.pos.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(2.4)));
+  }
+
+  shake = Math.max(shake, 0.2);
+}
+
+function createProjectile(options: {
+  texture: THREE.Texture;
+  pos: V2;
+  vel: V2;
+  radius: number;
+  scale: number;
+  damage: number;
+  team: Team;
+  life: number;
+  pierce: number;
+  spin: number;
+}): Projectile {
+  const material = new THREE.SpriteMaterial({
+    map: options.texture,
+    transparent: true,
+    depthTest: false
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.setScalar(options.scale);
+  sprite.position.set(options.pos.x, options.pos.y, 4);
+  sprite.renderOrder = 2200;
+  fxGroup.add(sprite);
+
+  const projectile: Projectile = {
+    sprite,
+    pos: options.pos,
+    vel: options.vel,
+    radius: options.radius,
+    damage: options.damage,
+    team: options.team,
+    life: options.life,
+    maxLife: options.life,
+    pierce: options.pierce,
+    spin: options.spin,
+    hitIds: new Set()
+  };
+  projectiles.push(projectile);
+  return projectile;
+}
+
+function spawnSlash(origin: V2, dir: V2, scale: number): void {
+  const material = new THREE.SpriteMaterial({
+    map: textures.slash,
+    transparent: true,
+    depthTest: false,
+    color: "#ffd166"
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.position.set(origin.x + dir.x * 0.8, origin.y + dir.y * 0.8, 6);
+  sprite.scale.set(2.2 * scale, 1.35 * scale, 1);
+  sprite.material.rotation = Math.atan2(dir.y, dir.x);
+  sprite.renderOrder = 2600;
+  fxGroup.add(sprite);
+  particles.push({
+    sprite,
+    pos: new THREE.Vector2(sprite.position.x, sprite.position.y),
+    vel: dir.clone().multiplyScalar(0.5),
+    life: 0.16,
+    maxLife: 0.16,
+    startScale: 1,
+    endScale: 1.25
+  });
+}
+
+function burst(pos: V2, color: string, count: number): void {
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = randomRange(1.2, 5.2);
+    spawnParticle(
+      pos.clone(),
+      new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(speed),
+      randomRange(0.25, 0.62),
+      randomRange(0.08, 0.18),
+      randomRange(0.01, 0.04),
+      color
+    );
+  }
+}
+
+function spawnParticle(pos: V2, vel: V2, life: number, startScale: number, endScale: number, color: string): void {
+  const material = new THREE.SpriteMaterial({
+    map: textures.spark,
+    transparent: true,
+    depthTest: false,
+    color
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.position.set(pos.x, pos.y, 6);
+  sprite.scale.setScalar(startScale);
+  fxGroup.add(sprite);
+  particles.push({
+    sprite,
+    pos,
+    vel,
+    life,
+    maxLife: life,
+    startScale,
+    endScale
+  });
+}
+
+function buildArena(): void {
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(world.width, world.height),
+    new THREE.MeshBasicMaterial({ color: "#292231" })
+  );
+  floor.position.z = -2;
+  arenaGroup.add(floor);
+
+  const inner = new THREE.Mesh(
+    new THREE.PlaneGeometry(world.width - 2.2, world.height - 2.2),
+    new THREE.MeshBasicMaterial({ color: "#343044" })
+  );
+  inner.position.z = -1.8;
+  arenaGroup.add(inner);
+
+  const gridMaterial = new THREE.LineBasicMaterial({ color: "#584462", transparent: true, opacity: 0.24 });
+  const grid = new THREE.Group();
+
+  for (let x = -world.halfWidth + 2; x <= world.halfWidth - 2; x += 2) {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x, -world.halfHeight + 1.4, -1.6),
+      new THREE.Vector3(x, world.halfHeight - 1.4, -1.6)
+    ]);
+    grid.add(new THREE.Line(geometry, gridMaterial));
+  }
+
+  for (let y = -world.halfHeight + 1.5; y <= world.halfHeight - 1.5; y += 2) {
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-world.halfWidth + 1.5, y, -1.6),
+      new THREE.Vector3(world.halfWidth - 1.5, y, -1.6)
+    ]);
+    grid.add(new THREE.Line(geometry, gridMaterial));
+  }
+
+  arenaGroup.add(grid);
+
+  const wallMaterial = new THREE.MeshBasicMaterial({ color: "#1d1724" });
+  const trimMaterial = new THREE.MeshBasicMaterial({ color: "#8d5a36" });
+  addWall(0, world.halfHeight + 0.25, world.width + 1, 0.9, wallMaterial);
+  addWall(0, -world.halfHeight - 0.25, world.width + 1, 0.9, wallMaterial);
+  addWall(-world.halfWidth - 0.25, 0, 0.9, world.height + 1, wallMaterial);
+  addWall(world.halfWidth + 0.25, 0, 0.9, world.height + 1, wallMaterial);
+  addWall(0, world.halfHeight - 0.42, world.width - 1.7, 0.16, trimMaterial);
+  addWall(0, -world.halfHeight + 0.42, world.width - 1.7, 0.16, trimMaterial);
+
+  const propPositions = [
+    [-12.4, 6.6],
+    [12.2, 6.2],
+    [-12.8, -6.4],
+    [12.1, -6.8],
+    [0, 7.3],
+    [0, -7.1]
+  ] as const;
+
+  for (const [x, y] of propPositions) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: textures.boon, transparent: true, depthTest: false }));
+    sprite.position.set(x, y, 1);
+    sprite.scale.set(1.4, 1.4, 1);
+    sprite.renderOrder = renderOrderFor(y, -80);
+    propGroup.add(sprite);
+    props.push(sprite);
+  }
+}
+
+function addWall(x: number, y: number, width: number, height: number, material: THREE.Material): void {
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  mesh.position.set(x, y, -1);
+  arenaGroup.add(mesh);
+}
+
+function keepInArena(pos: V2, radius: number): void {
+  pos.x = THREE.MathUtils.clamp(pos.x, -world.halfWidth + radius + 1.1, world.halfWidth - radius - 1.1);
+  pos.y = THREE.MathUtils.clamp(pos.y, -world.halfHeight + radius + 1.1, world.halfHeight - radius - 1.1);
+}
+
+function updatePointer(clientX: number, clientY: number): void {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const nx = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ny = ((clientY - rect.top) / rect.height) * 2 - 1;
+  const width = camera.right - camera.left;
+  const height = camera.top - camera.bottom;
+  pointerWorld.set(camera.position.x + nx * width * 0.5, camera.position.y - ny * height * 0.5);
+}
+
+const touchMove = new THREE.Vector2();
+let activeStick: number | null = null;
+
+function setupTouchControls(): void {
+  stick.addEventListener("pointerdown", (event) => {
+    activeStick = event.pointerId;
+    stick.setPointerCapture(event.pointerId);
+    updateStick(event);
+  });
+
+  stick.addEventListener("pointermove", (event) => {
+    if (activeStick === event.pointerId) {
+      updateStick(event);
+    }
+  });
+
+  const release = (event: PointerEvent) => {
+    if (activeStick === event.pointerId) {
+      activeStick = null;
+      touchMove.set(0, 0);
+      knob.style.transform = "translate(0px, 0px)";
+    }
+  };
+
+  stick.addEventListener("pointerup", release);
+  stick.addEventListener("pointercancel", release);
+
+  touch.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+
+      if (mode === "title") {
+        startGame();
+        return;
+      }
+
+      const act = button.dataset.act;
+
+      if (act === "attack") {
+        strike();
+      } else if (act === "dash") {
+        dash();
+      } else if (act === "special") {
+        special();
+      } else if (act === "trap") {
+        dropTrap();
+      }
+    });
+  });
+}
+
+function updateStick(event: PointerEvent): void {
+  const rect = stick.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const dx = event.clientX - centerX;
+  const dy = event.clientY - centerY;
+  const max = rect.width * 0.34;
+  const len = Math.hypot(dx, dy);
+  const clamped = len > max ? max / len : 1;
+  const x = dx * clamped;
+  const y = dy * clamped;
+  knob.style.transform = `translate(${x}px, ${y}px)`;
+  touchMove.set(x / max, -y / max);
+
+  if (touchMove.lengthSq() > 0.04) {
+    pointerWorld.copy(player.pos).add(touchMove.clone().normalize().multiplyScalar(4));
+  }
+}
+
+function resize(): void {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const aspect = width / Math.max(1, height);
+  const viewHeight = aspect < 0.75 ? 23 : 18;
+  const viewWidth = viewHeight * aspect;
+  camera.left = -viewWidth / 2;
+  camera.right = viewWidth / 2;
+  camera.top = viewHeight / 2;
+  camera.bottom = -viewHeight / 2;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+}
+
+function removeEnemy(enemy: Enemy): void {
+  const index = enemies.indexOf(enemy);
+
+  if (index >= 0) {
+    enemies.splice(index, 1);
+  }
+
+  actorGroup.remove(enemy.sprite);
+  enemy.sprite.material.dispose();
+}
+
+function removeProjectile(projectile: Projectile): void {
+  const index = projectiles.indexOf(projectile);
+
+  if (index >= 0) {
+    projectiles.splice(index, 1);
+  }
+
+  fxGroup.remove(projectile.sprite);
+  projectile.sprite.material.dispose();
+}
+
+function removeParticle(particle: Particle): void {
+  const index = particles.indexOf(particle);
+
+  if (index >= 0) {
+    particles.splice(index, 1);
+  }
+
+  fxGroup.remove(particle.sprite);
+  particle.sprite.material.dispose();
+}
+
+function removeTrap(trap: Trap): void {
+  const index = traps.indexOf(trap);
+
+  if (index >= 0) {
+    traps.splice(index, 1);
+  }
+
+  fxGroup.remove(trap.sprite);
+  trap.sprite.material.dispose();
+}
+
+function clearArray<T>(items: T[], remove: (item: T) => void): void {
+  for (const item of [...items]) {
+    remove(item);
+  }
+}
+
+function renderOrderFor(y: number, offset: number): number {
+  return 1500 - Math.round(y * 20) + offset;
+}
+
+function randomRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function makeTexture(draw: (ctx: CanvasRenderingContext2D, size: number) => void, size = 256): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Could not create canvas texture");
+  }
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  draw(ctx, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function makeBurgerTexture(boss: boolean): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    const c = size / 2;
+    const scale = boss ? 1.08 : 0.88;
+    ctx.translate(c, c + (boss ? 8 : 12));
+    ctx.scale(scale, scale);
+    drawBlobShadow(ctx, 0, 54, 82, 20);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#201018";
+    ctx.fillStyle = boss ? "#f2a33b" : "#e9a84f";
+    roundRect(ctx, -78, -70, 156, 58, 28);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fff0a5";
+
+    for (let i = 0; i < (boss ? 12 : 8); i += 1) {
+      const x = randomSeed(i, -54, 54);
+      const y = randomSeed(i + 9, -58, -34);
+      ctx.beginPath();
+      ctx.ellipse(x, y, 5, 2.4, randomSeed(i + 2, -0.8, 0.8), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#73c55b";
+    ctx.beginPath();
+
+    for (let x = -74; x <= 74; x += 18) {
+      const y = -12 + Math.sin(x * 0.2) * 7;
+      if (x === -74) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+
+    ctx.lineTo(74, 16);
+    ctx.lineTo(-74, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#8b3827";
+    roundRect(ctx, -72, 0, 144, 42, 16);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(-55, 0);
+    ctx.lineTo(-24, 0);
+    ctx.lineTo(-42, 28);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#c97a37";
+    roundRect(ctx, -78, 28, 156, 42, 24);
+    ctx.fill();
+    ctx.stroke();
+
+    if (boss) {
+      ctx.fillStyle = "#7a304e";
+      ctx.beginPath();
+      ctx.moveTo(-70, -66);
+      ctx.lineTo(-112, -88);
+      ctx.lineTo(-86, -34);
+      ctx.closePath();
+      ctx.moveTo(70, -66);
+      ctx.lineTo(112, -88);
+      ctx.lineTo(86, -34);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#ffd166";
+      ctx.beginPath();
+      ctx.moveTo(-38, -92);
+      ctx.lineTo(0, -126);
+      ctx.lineTo(38, -92);
+      ctx.lineTo(26, -76);
+      ctx.lineTo(0, -98);
+      ctx.lineTo(-26, -76);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    drawEyes(ctx, -28, -20, 28, -20, boss ? "#ffcf55" : "#fff8d9");
+    ctx.strokeStyle = "#201018";
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.arc(0, 6, boss ? 24 : 18, 0.1, Math.PI - 0.1);
+    ctx.stroke();
+  });
+}
+
+function makeShadeTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    const c = size / 2;
+    ctx.translate(c, c + 12);
+    drawBlobShadow(ctx, 0, 60, 64, 18);
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = "#170e20";
+    ctx.fillStyle = "#6f4bb6";
+    ctx.beginPath();
+    ctx.moveTo(-58, 34);
+    ctx.bezierCurveTo(-84, -22, -42, -82, 6, -78);
+    ctx.bezierCurveTo(60, -74, 78, -12, 52, 42);
+    ctx.bezierCurveTo(26, 76, -36, 74, -58, 34);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#9c7bea";
+    ctx.beginPath();
+    ctx.ellipse(-18, -36, 20, 28, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    drawEyes(ctx, -18, -10, 24, -12, "#fcefb4");
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.moveTo(-46, 20);
+    ctx.lineTo(-78, 6);
+    ctx.moveTo(48, 22);
+    ctx.lineTo(78, 0);
+    ctx.stroke();
+  });
+}
+
+function makeMageTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    const c = size / 2;
+    ctx.translate(c, c + 10);
+    drawBlobShadow(ctx, 0, 62, 62, 18);
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = "#181018";
+    ctx.fillStyle = "#3f7f6f";
+    ctx.beginPath();
+    ctx.moveTo(-50, 58);
+    ctx.quadraticCurveTo(-26, -24, 0, -76);
+    ctx.quadraticCurveTo(28, -24, 54, 58);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(-28, -30);
+    ctx.lineTo(0, -90);
+    ctx.lineTo(32, -30);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#2b202e";
+    ctx.beginPath();
+    ctx.ellipse(0, 6, 38, 31, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    drawEyes(ctx, -14, 0, 16, 0, "#a9dcff");
+    ctx.strokeStyle = "#d96459";
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(44, 10);
+    ctx.lineTo(86, -30);
+    ctx.stroke();
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.arc(92, -36, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+function makeWaffleTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    const c = size / 2;
+    ctx.translate(c, c);
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = "#28140b";
+    ctx.fillStyle = "#f1ad39";
+    ctx.beginPath();
+    ctx.arc(0, 0, 82, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#a96024";
+    ctx.lineWidth = 8;
+
+    for (let x = -48; x <= 48; x += 32) {
+      ctx.beginPath();
+      ctx.moveTo(x, -68);
+      ctx.lineTo(x, 68);
+      ctx.stroke();
+    }
+
+    for (let y = -48; y <= 48; y += 32) {
+      ctx.beginPath();
+      ctx.moveTo(-68, y);
+      ctx.lineTo(68, y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#fff1a8";
+    ctx.beginPath();
+    ctx.arc(18, -22, 18, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function makeSlashTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.strokeStyle = "#3a1d0e";
+    ctx.lineWidth = 24;
+    ctx.beginPath();
+    ctx.arc(-8, 4, 82, -0.55, 0.56);
+    ctx.stroke();
+    ctx.strokeStyle = "#ffd166";
+    ctx.lineWidth = 15;
+    ctx.beginPath();
+    ctx.arc(-8, 4, 82, -0.55, 0.56);
+    ctx.stroke();
+    ctx.strokeStyle = "#fff6c6";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(-4, -2, 68, -0.48, 0.48);
+    ctx.stroke();
+  });
+}
+
+function makeSyrupTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = "#190e1d";
+    const gradient = ctx.createLinearGradient(-64, 0, 64, 0);
+    gradient.addColorStop(0, "#7c3aed");
+    gradient.addColorStop(0.55, "#d96459");
+    gradient.addColorStop(1, "#ffd166");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 72, 32, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#fff6c6";
+    ctx.beginPath();
+    ctx.ellipse(22, -8, 24, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function makeSparkTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(0, 0, 76, 0, Math.PI * 2);
+    ctx.fill();
+  }, 96);
+}
+
+function makeTrapTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#201018";
+    ctx.fillStyle = "rgba(255, 209, 102, 0.62)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 88, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#fff3a4";
+    ctx.lineWidth = 7;
+
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 26, Math.sin(a) * 26);
+      ctx.lineTo(Math.cos(a) * 78, Math.sin(a) * 78);
+      ctx.stroke();
+    }
+
+    ctx.strokeStyle = "#a96024";
+    ctx.lineWidth = 9;
+    ctx.strokeRect(-44, -44, 88, 88);
+  });
+}
+
+function makeBoonTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    drawBlobShadow(ctx, 0, 62, 70, 16);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#1d1422";
+    ctx.fillStyle = "#386d62";
+    roundRect(ctx, -58, -38, 116, 92, 18);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffd166";
+    ctx.beginPath();
+    ctx.moveTo(-36, -44);
+    ctx.lineTo(0, -78);
+    ctx.lineTo(36, -44);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#f1ad39";
+    ctx.beginPath();
+    ctx.arc(0, 6, 34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = "#a96024";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-24, 6);
+    ctx.lineTo(24, 6);
+    ctx.moveTo(0, -18);
+    ctx.lineTo(0, 30);
+    ctx.stroke();
+  });
+}
+
+function drawEyes(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string): void {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(x1, y1, 13, 16, 0, 0, Math.PI * 2);
+  ctx.ellipse(x2, y2, 13, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#211518";
+  ctx.beginPath();
+  ctx.arc(x1 + 2, y1 + 2, 6, 0, Math.PI * 2);
+  ctx.arc(x2 + 2, y2 + 2, 6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawBlobShadow(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number): void {
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function randomSeed(seed: number, min: number, max: number): number {
+  const n = Math.sin(seed * 999.91) * 43758.5453;
+  return min + (n - Math.floor(n)) * (max - min);
+}
