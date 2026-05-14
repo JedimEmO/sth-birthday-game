@@ -23,13 +23,15 @@ Standard gamepads are supported:
 
 - Left stick: move
 - Right stick: aim
-- A / Cross: dash or start run
-- X / Square or right trigger: strike
-- Y / Triangle or left trigger: cast active spell
-- B / Circle: drop waffle trap
+- West / X / Square: strike
+- East / B / Circle: dash
+- South / A / Cross: cast active spell
+- North / Y / Triangle: cycle spells
+- Left trigger: drop waffle trap
+- Right trigger: strike
 - Left bumper or D-pad left/right: cycle spells
 - Right bumper or D-pad up/down: cycle weapons
-- Start / Options: start or restart from title and end screens
+- Any button: start or restart from title and end screens
 
 When testing from a local `file://` URL, focus the game tab and press any controller button once. Some browsers only expose a connected gamepad to the page after that first press. If your browser still reports no gamepads, use `npm run dev` and open `http://127.0.0.1:5173`.
 

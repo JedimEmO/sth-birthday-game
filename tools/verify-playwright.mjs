@@ -81,6 +81,7 @@ for (const config of [
   await waitForDrawableCanvas(page);
 
   const titlePixels = await sampleCanvas(page);
+  const titleControls = await page.evaluate(() => document.querySelector(".controlGuide")?.textContent?.replace(/\s+/g, " ").trim() ?? "");
   await page.screenshot({ path: resolve(outDir, `${config.name}-title.png`), fullPage: true });
 
   if (config.gamepad) {
@@ -112,20 +113,20 @@ for (const config of [
       const afterMove = await inputState(page);
       await setGamepad(page, { axes: [0, 0, 1, 0] });
       await page.waitForTimeout(120);
-      await setGamepad(page, { axes: [0, 0, 1, 0], buttons: [7] });
+      await setGamepad(page, { axes: [0, 0, 1, 0], buttons: [2] });
       await page.waitForTimeout(80);
       const afterAttack = await inputState(page);
       await setGamepad(page, { axes: [0, 0, 1, 0] });
-      await setGamepad(page, { buttons: [0] });
-      await page.waitForTimeout(80);
-      await setGamepad(page, {});
-      await setGamepad(page, { buttons: [3] });
-      await page.waitForTimeout(80);
-      await setGamepad(page, {});
       await setGamepad(page, { buttons: [1] });
       await page.waitForTimeout(80);
       await setGamepad(page, {});
-      await setGamepad(page, { buttons: [4] });
+      await setGamepad(page, { buttons: [0] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [6] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [3] });
       await page.waitForTimeout(80);
       await setGamepad(page, {});
       await setGamepad(page, { buttons: [5] });
@@ -300,6 +301,7 @@ for (const config of [
   results.push({
     viewport: config,
     titlePixels,
+    titleControls,
     playingPixels,
     spellUi,
     touchUi,
@@ -336,6 +338,8 @@ for (const result of results) {
   const requiredTechniqueIds = ["glassBatter", "syrupScholar", "ironBirthday", "dashChef", "trapwright", "greedyGriddle", "heavyServe", "swiftFrosting"];
   const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
   const requiredTouchLabels = ["Strike", "Dash", "Special", "Trap", "Spell", "Weapon"];
+  const titleControlsOk =
+    ["Keyboard", "Touch", "Controller", "West attack", "east dash", "South spell", "north cycle spell"].every((label) => result.titleControls.includes(label));
   const spellUiOk =
     result.spellUi.visible
     && result.spellUi.slotCount >= requiredSpellIds.length
@@ -424,7 +428,7 @@ for (const result of results) {
     && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
     && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !touchUiOk || !mobileControlsOk || !controllerControlsOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !titleControlsOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !touchUiOk || !mobileControlsOk || !controllerControlsOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }

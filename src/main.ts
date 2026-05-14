@@ -504,6 +504,40 @@ const css = `
     flex-wrap: wrap;
   }
 
+  .controlGuide {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 20px auto 0;
+    max-width: 650px;
+    text-align: left;
+  }
+
+  .controlColumn {
+    padding: 12px;
+    border: 1px solid rgba(130, 247, 255, 0.28);
+    border-radius: 8px;
+    background: rgba(18, 22, 31, 0.68);
+  }
+
+  .controlColumn strong,
+  .controlColumn span {
+    display: block;
+  }
+
+  .controlColumn strong {
+    color: #82f7ff;
+    font-size: 13px;
+    line-height: 1.1;
+  }
+
+  .controlColumn span {
+    margin-top: 6px;
+    color: #e4eeff;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
   button {
     appearance: none;
     border: 0;
@@ -770,6 +804,10 @@ const css = `
     }
 
     .boonGrid {
+      grid-template-columns: 1fr;
+    }
+
+    .controlGuide {
       grid-template-columns: 1fr;
     }
 
@@ -1751,23 +1789,23 @@ function updateGamepads(): void {
     return;
   }
 
-  if (pressedOnce(0)) {
-    performAction("dash");
-  }
-
   if (pressed.has(2) || pressed.has(7)) {
     performAction("attack");
   }
 
-  if (pressed.has(3) || pressed.has(6)) {
+  if (pressedOnce(1)) {
+    performAction("dash");
+  }
+
+  if (pressed.has(0)) {
     performAction("special");
   }
 
-  if (pressed.has(1)) {
+  if (pressed.has(6)) {
     performAction("trap");
   }
 
-  if (pressedOnce(4) || pressedOnce(15)) {
+  if (pressedOnce(3) || pressedOnce(4) || pressedOnce(15)) {
     cycleSpellSelection(1);
   }
 
@@ -2185,6 +2223,27 @@ function showTitle(): void {
     <div class="panel modal">
       <h1 class="title">Sindre's Waffle Adventure</h1>
       <p class="tagline">Waffle shield raised, spatula lit, burger shades incoming.</p>
+      <div class="controlGuide">
+        <div class="controlColumn">
+          <strong>Keyboard</strong>
+          <span>WASD move</span>
+          <span>J attack</span>
+          <span>Q spell</span>
+          <span>Space dash</span>
+        </div>
+        <div class="controlColumn">
+          <strong>Touch</strong>
+          <span>Stick move</span>
+          <span>Buttons attack, dash, spell, trap</span>
+          <span>Spell and weapon cycle buttons</span>
+        </div>
+        <div class="controlColumn">
+          <strong>Controller</strong>
+          <span>Left stick move, right stick aim</span>
+          <span>West attack, east dash</span>
+          <span>South spell, north cycle spell</span>
+        </div>
+      </div>
       <div class="actions">
         <button id="startButton">Begin Run</button>
       </div>
