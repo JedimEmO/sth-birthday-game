@@ -9,20 +9,148 @@
       "width": 1280,
       "height": 800,
       "samples": 9062,
-      "nonBlankRatio": 0.9979033325976605,
-      "uniqueColors": 36,
-      "hash": 51971604
+      "nonBlankRatio": 0.9964687706907968,
+      "uniqueColors": 630,
+      "hash": 289508804
     },
     "playingPixels": {
       "width": 1280,
       "height": 800,
       "samples": 9062,
-      "nonBlankRatio": 0.9981240344294857,
-      "uniqueColors": 48,
-      "hash": 71846703
+      "nonBlankRatio": 0.9967998234385346,
+      "uniqueColors": 650,
+      "hash": 720667805
     },
+    "roomSummary": {
+      "roomCount": 8,
+      "bossRoomCount": 3,
+      "arenaIds": [
+        "batterGate",
+        "syrupCanal",
+        "griddleFoundry",
+        "candleCrypt",
+        "burgerBasilica"
+      ],
+      "enemyKinds": [
+        "burger",
+        "shade",
+        "mage",
+        "golem",
+        "griddleBoss",
+        "candleBoss",
+        "burgerBoss"
+      ],
+      "roomNames": [
+        "The Batter Gate",
+        "Syrup Canal",
+        "Griddle Foundry",
+        "The Griddle Baron's Anvil",
+        "Candle Crypt",
+        "The Candle Lich Vigil",
+        "Burger Basilica",
+        "The Triple Stack Throne"
+      ]
+    },
+    "roomSamples": [
+      {
+        "index": 0,
+        "name": "The Batter Gate",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9962480688589715,
+          "uniqueColors": 629,
+          "hash": 813286431
+        }
+      },
+      {
+        "index": 1,
+        "name": "Syrup Canal",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9799161333039064,
+          "uniqueColors": 754,
+          "hash": 629204066
+        }
+      },
+      {
+        "index": 2,
+        "name": "Griddle Foundry",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9846612226881483,
+          "uniqueColors": 753,
+          "hash": 667507787
+        }
+      },
+      {
+        "index": 3,
+        "name": "The Griddle Baron's Anvil",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.984440520856323,
+          "uniqueColors": 746,
+          "hash": 516466342
+        }
+      },
+      {
+        "index": 4,
+        "name": "Candle Crypt",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.974508938424189,
+          "uniqueColors": 936,
+          "hash": 740562315
+        }
+      },
+      {
+        "index": 5,
+        "name": "The Candle Lich Vigil",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9747296402560142,
+          "uniqueColors": 900,
+          "hash": 565710990
+        }
+      },
+      {
+        "index": 6,
+        "name": "Burger Basilica",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9976826307658354,
+          "uniqueColors": 937,
+          "hash": 807938081
+        }
+      },
+      {
+        "index": 7,
+        "name": "The Triple Stack Throne",
+        "pixels": {
+          "width": 1280,
+          "height": 800,
+          "samples": 9062,
+          "nonBlankRatio": 0.9976826307658354,
+          "uniqueColors": 938,
+          "hash": 700870379
+        }
+      }
+    ],
     "errors": [],
-    "changedSamples": 19875099
+    "changedSamples": 431159001
   },
   {
     "viewport": {
@@ -34,19 +162,147 @@
       "width": 780,
       "height": 1688,
       "samples": 9019,
-      "nonBlankRatio": 0.8518682780796097,
-      "uniqueColors": 55,
-      "hash": 650907421
+      "nonBlankRatio": 0.8566359906863289,
+      "uniqueColors": 596,
+      "hash": 516073396
     },
     "playingPixels": {
       "width": 780,
       "height": 1688,
       "samples": 9019,
-      "nonBlankRatio": 0.8500942454817607,
-      "uniqueColors": 70,
-      "hash": 119747935
+      "nonBlankRatio": 0.859629670695199,
+      "uniqueColors": 670,
+      "hash": 217987434
     },
+    "roomSummary": {
+      "roomCount": 8,
+      "bossRoomCount": 3,
+      "arenaIds": [
+        "batterGate",
+        "syrupCanal",
+        "griddleFoundry",
+        "candleCrypt",
+        "burgerBasilica"
+      ],
+      "enemyKinds": [
+        "burger",
+        "shade",
+        "mage",
+        "golem",
+        "griddleBoss",
+        "candleBoss",
+        "burgerBoss"
+      ],
+      "roomNames": [
+        "The Batter Gate",
+        "Syrup Canal",
+        "Griddle Foundry",
+        "The Griddle Baron's Anvil",
+        "Candle Crypt",
+        "The Candle Lich Vigil",
+        "Burger Basilica",
+        "The Triple Stack Throne"
+      ]
+    },
+    "roomSamples": [
+      {
+        "index": 0,
+        "name": "The Batter Gate",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.8592970395831023,
+          "uniqueColors": 640,
+          "hash": 794220696
+        }
+      },
+      {
+        "index": 1,
+        "name": "Syrup Canal",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.8579665151347156,
+          "uniqueColors": 580,
+          "hash": 920959882
+        }
+      },
+      {
+        "index": 2,
+        "name": "Griddle Foundry",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.9173966071626566,
+          "uniqueColors": 649,
+          "hash": 361604148
+        }
+      },
+      {
+        "index": 3,
+        "name": "The Griddle Baron's Anvil",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.9181727464242155,
+          "uniqueColors": 642,
+          "hash": 292640657
+        }
+      },
+      {
+        "index": 4,
+        "name": "Candle Crypt",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.8487637210333739,
+          "uniqueColors": 641,
+          "hash": 59023438
+        }
+      },
+      {
+        "index": 5,
+        "name": "The Candle Lich Vigil",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 0.8488745980707395,
+          "uniqueColors": 615,
+          "hash": 853597093
+        }
+      },
+      {
+        "index": 6,
+        "name": "Burger Basilica",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 1,
+          "uniqueColors": 985,
+          "hash": 481594161
+        }
+      },
+      {
+        "index": 7,
+        "name": "The Triple Stack Throne",
+        "pixels": {
+          "width": 780,
+          "height": 1688,
+          "samples": 9019,
+          "nonBlankRatio": 1,
+          "uniqueColors": 1008,
+          "hash": 235126774
+        }
+      }
+    ],
     "errors": [],
-    "changedSamples": 531159486
+    "changedSamples": 298085962
   }
 ]

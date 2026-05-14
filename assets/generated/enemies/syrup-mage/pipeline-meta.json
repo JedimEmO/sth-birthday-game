@@ -1,0 +1,180 @@
+{
+  "target": "creature",
+  "mode": "cast",
+  "prompt": "",
+  "role": "",
+  "input": "assets/generated/enemies/syrup-mage/raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 140,
+  "rows": 2,
+  "cols": 2,
+  "cell_size": 128,
+  "fit_scale": 0.84,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "feet",
+  "shared_scale": true,
+  "component_mode": "largest",
+  "component_padding": 8,
+  "min_component_area": 200,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "syrup-mage-1",
+    "syrup-mage-2",
+    "syrup-mage-3",
+    "syrup-mage-4"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        627,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 83827,
+      "selected_component_bbox": [
+        143,
+        131,
+        500,
+        563
+      ],
+      "crop_bbox": [
+        135,
+        123,
+        508,
+        571
+      ],
+      "edge_touch": false,
+      "output_size": [
+        68,
+        82
+      ],
+      "paste_position": [
+        30,
+        36
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        627,
+        0,
+        1254,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 82890,
+      "selected_component_bbox": [
+        80,
+        67,
+        403,
+        568
+      ],
+      "crop_bbox": [
+        72,
+        59,
+        411,
+        576
+      ],
+      "edge_touch": false,
+      "output_size": [
+        62,
+        95
+      ],
+      "paste_position": [
+        33,
+        23
+      ]
+    },
+    {
+      "grid": [
+        1,
+        0
+      ],
+      "source_box": [
+        0,
+        627,
+        627,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 8,
+      "selected_component_area": 73176,
+      "selected_component_bbox": [
+        148,
+        59,
+        499,
+        434
+      ],
+      "crop_bbox": [
+        140,
+        51,
+        507,
+        442
+      ],
+      "edge_touch": false,
+      "output_size": [
+        67,
+        72
+      ],
+      "paste_position": [
+        30,
+        46
+      ]
+    },
+    {
+      "grid": [
+        1,
+        1
+      ],
+      "source_box": [
+        627,
+        627,
+        1254,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 8,
+      "selected_component_area": 83003,
+      "selected_component_bbox": [
+        1,
+        68,
+        574,
+        434
+      ],
+      "crop_bbox": [
+        0,
+        60,
+        582,
+        442
+      ],
+      "edge_touch": true,
+      "output_size": [
+        107,
+        70
+      ],
+      "paste_position": [
+        10,
+        48
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      1,
+      1
+    ]
+  ]
+}

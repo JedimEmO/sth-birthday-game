@@ -615,6 +615,17 @@
       ]
     }
   ],
+  "manual_fixes": [
+    {
+      "frames": [
+        13,
+        14,
+        15,
+        16
+      ],
+      "reason": "Added conservative top-cap pixels to the up-facing head so it is no longer flat from source-edge clipping without changing the character proportions."
+    }
+  ],
   "edge_touch_frames": [
     [
       1,

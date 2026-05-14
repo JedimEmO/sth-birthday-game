@@ -1,0 +1,369 @@
+{
+  "target": "creature",
+  "mode": "combat",
+  "prompt": "",
+  "role": "",
+  "input": "assets/generated/enemies/griddle-baron/raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 130,
+  "rows": 3,
+  "cols": 3,
+  "cell_size": 128,
+  "fit_scale": 0.82,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "feet",
+  "shared_scale": true,
+  "component_mode": "largest",
+  "component_padding": 10,
+  "min_component_area": 300,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "griddle-baron-1",
+    "griddle-baron-2",
+    "griddle-baron-3",
+    "griddle-baron-4",
+    "griddle-baron-5",
+    "griddle-baron-6",
+    "griddle-baron-7",
+    "griddle-baron-8",
+    "griddle-baron-9"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        418,
+        418
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 48018,
+      "selected_component_bbox": [
+        36,
+        69,
+        380,
+        372
+      ],
+      "crop_bbox": [
+        26,
+        59,
+        390,
+        382
+      ],
+      "edge_touch": false,
+      "output_size": [
+        96,
+        85
+      ],
+      "paste_position": [
+        16,
+        32
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        418,
+        0,
+        836,
+        418
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 52942,
+      "selected_component_bbox": [
+        23,
+        68,
+        399,
+        373
+      ],
+      "crop_bbox": [
+        13,
+        58,
+        409,
+        383
+      ],
+      "edge_touch": false,
+      "output_size": [
+        104,
+        86
+      ],
+      "paste_position": [
+        12,
+        31
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        836,
+        0,
+        1254,
+        418
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 53765,
+      "selected_component_bbox": [
+        30,
+        27,
+        363,
+        378
+      ],
+      "crop_bbox": [
+        20,
+        17,
+        373,
+        388
+      ],
+      "edge_touch": false,
+      "output_size": [
+        93,
+        98
+      ],
+      "paste_position": [
+        17,
+        19
+      ]
+    },
+    {
+      "grid": [
+        1,
+        0
+      ],
+      "source_box": [
+        0,
+        418,
+        418,
+        836
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 47478,
+      "selected_component_bbox": [
+        39,
+        34,
+        367,
+        345
+      ],
+      "crop_bbox": [
+        29,
+        24,
+        377,
+        355
+      ],
+      "edge_touch": false,
+      "output_size": [
+        92,
+        87
+      ],
+      "paste_position": [
+        18,
+        30
+      ]
+    },
+    {
+      "grid": [
+        1,
+        1
+      ],
+      "source_box": [
+        418,
+        418,
+        836,
+        836
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 51770,
+      "selected_component_bbox": [
+        50,
+        44,
+        379,
+        341
+      ],
+      "crop_bbox": [
+        40,
+        34,
+        389,
+        351
+      ],
+      "edge_touch": false,
+      "output_size": [
+        92,
+        84
+      ],
+      "paste_position": [
+        18,
+        33
+      ]
+    },
+    {
+      "grid": [
+        1,
+        2
+      ],
+      "source_box": [
+        836,
+        418,
+        1254,
+        836
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 53173,
+      "selected_component_bbox": [
+        5,
+        68,
+        376,
+        353
+      ],
+      "crop_bbox": [
+        0,
+        58,
+        386,
+        363
+      ],
+      "edge_touch": true,
+      "output_size": [
+        102,
+        80
+      ],
+      "paste_position": [
+        13,
+        37
+      ]
+    },
+    {
+      "grid": [
+        2,
+        0
+      ],
+      "source_box": [
+        0,
+        836,
+        418,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 46681,
+      "selected_component_bbox": [
+        24,
+        31,
+        376,
+        332
+      ],
+      "crop_bbox": [
+        14,
+        21,
+        386,
+        342
+      ],
+      "edge_touch": false,
+      "output_size": [
+        98,
+        85
+      ],
+      "paste_position": [
+        15,
+        32
+      ]
+    },
+    {
+      "grid": [
+        2,
+        1
+      ],
+      "source_box": [
+        418,
+        836,
+        836,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 53885,
+      "selected_component_bbox": [
+        55,
+        16,
+        366,
+        335
+      ],
+      "crop_bbox": [
+        45,
+        6,
+        376,
+        345
+      ],
+      "edge_touch": false,
+      "output_size": [
+        87,
+        89
+      ],
+      "paste_position": [
+        20,
+        28
+      ]
+    },
+    {
+      "grid": [
+        2,
+        2
+      ],
+      "source_box": [
+        836,
+        836,
+        1254,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 48132,
+      "selected_component_bbox": [
+        0,
+        33,
+        342,
+        336
+      ],
+      "crop_bbox": [
+        0,
+        23,
+        352,
+        346
+      ],
+      "edge_touch": true,
+      "output_size": [
+        93,
+        85
+      ],
+      "paste_position": [
+        17,
+        32
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      2
+    ]
+  ]
+}

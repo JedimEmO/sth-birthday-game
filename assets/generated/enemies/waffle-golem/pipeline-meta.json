@@ -1,0 +1,180 @@
+{
+  "target": "creature",
+  "mode": "combat",
+  "prompt": "",
+  "role": "",
+  "input": "assets/generated/enemies/waffle-golem/raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 150,
+  "rows": 2,
+  "cols": 2,
+  "cell_size": 128,
+  "fit_scale": 0.84,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "feet",
+  "shared_scale": true,
+  "component_mode": "largest",
+  "component_padding": 8,
+  "min_component_area": 200,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "waffle-golem-1",
+    "waffle-golem-2",
+    "waffle-golem-3",
+    "waffle-golem-4"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        627,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 146936,
+      "selected_component_bbox": [
+        77,
+        111,
+        543,
+        552
+      ],
+      "crop_bbox": [
+        69,
+        103,
+        551,
+        560
+      ],
+      "edge_touch": false,
+      "output_size": [
+        97,
+        92
+      ],
+      "paste_position": [
+        15,
+        26
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        627,
+        0,
+        1254,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 152385,
+      "selected_component_bbox": [
+        8,
+        115,
+        522,
+        563
+      ],
+      "crop_bbox": [
+        0,
+        107,
+        530,
+        571
+      ],
+      "edge_touch": true,
+      "output_size": [
+        107,
+        94
+      ],
+      "paste_position": [
+        10,
+        24
+      ]
+    },
+    {
+      "grid": [
+        1,
+        0
+      ],
+      "source_box": [
+        0,
+        627,
+        627,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 1,
+      "selected_component_area": 153663,
+      "selected_component_bbox": [
+        43,
+        22,
+        553,
+        470
+      ],
+      "crop_bbox": [
+        35,
+        14,
+        561,
+        478
+      ],
+      "edge_touch": false,
+      "output_size": [
+        106,
+        94
+      ],
+      "paste_position": [
+        11,
+        24
+      ]
+    },
+    {
+      "grid": [
+        1,
+        1
+      ],
+      "source_box": [
+        627,
+        627,
+        1254,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 3,
+      "selected_component_area": 144189,
+      "selected_component_bbox": [
+        29,
+        65,
+        536,
+        487
+      ],
+      "crop_bbox": [
+        21,
+        57,
+        544,
+        495
+      ],
+      "edge_touch": false,
+      "output_size": [
+        106,
+        88
+      ],
+      "paste_position": [
+        11,
+        30
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      0,
+      1
+    ]
+  ]
+}

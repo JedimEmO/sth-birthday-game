@@ -1,5 +1,17 @@
 import * as THREE from "three";
 import heroSheetUrl from "../assets/generated/sindre-hero/sheet-transparent.png";
+import arenaBatterGateUrl from "../assets/generated/arenas/batter-gate.png";
+import arenaBurgerBasilicaUrl from "../assets/generated/arenas/burger-basilica.png";
+import arenaCandleCryptUrl from "../assets/generated/arenas/candle-crypt.png";
+import arenaGriddleFoundryUrl from "../assets/generated/arenas/griddle-foundry.png";
+import arenaSyrupCanalUrl from "../assets/generated/arenas/syrup-canal.png";
+import berryJamShadeSheetUrl from "../assets/generated/enemies/berry-jam-shade/sheet-transparent.png";
+import burgerBruiserSheetUrl from "../assets/generated/enemies/burger-bruiser/sheet-transparent.png";
+import burgerEmperorSheetUrl from "../assets/generated/enemies/burger-emperor/sheet-transparent.png";
+import candleLichSheetUrl from "../assets/generated/enemies/candle-lich/sheet-transparent.png";
+import griddleBaronSheetUrl from "../assets/generated/enemies/griddle-baron/sheet-transparent.png";
+import syrupMageSheetUrl from "../assets/generated/enemies/syrup-mage/sheet-transparent.png";
+import waffleGolemSheetUrl from "../assets/generated/enemies/waffle-golem/sheet-transparent.png";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -8,7 +20,8 @@ if (!app) {
 }
 
 type Mode = "title" | "playing" | "boon" | "won" | "lost";
-type EnemyKind = "burger" | "shade" | "mage" | "boss";
+type ArenaId = "batterGate" | "griddleFoundry" | "syrupCanal" | "candleCrypt" | "burgerBasilica";
+type EnemyKind = "burger" | "shade" | "mage" | "golem" | "griddleBoss" | "candleBoss" | "burgerBoss";
 type Team = "player" | "enemy";
 type BoonId =
   | "batter"
@@ -20,10 +33,26 @@ type BoonId =
 
 type V2 = THREE.Vector2;
 
+declare global {
+  interface Window {
+    __waffleTest?: {
+      previewRoom: (index: number) => void;
+      roomSummary: () => {
+        roomCount: number;
+        bossRoomCount: number;
+        arenaIds: ArenaId[];
+        enemyKinds: EnemyKind[];
+        roomNames: string[];
+      };
+    };
+  }
+}
+
 interface Enemy {
   id: number;
   kind: EnemyKind;
   sprite: THREE.Sprite;
+  sheet: SpriteSheetDef;
   pos: V2;
   vel: V2;
   radius: number;
@@ -35,6 +64,16 @@ interface Enemy {
   specialTimer: number;
   stun: number;
   phase: number;
+  baseScale: number;
+  boss: boolean;
+}
+
+interface SpriteSheetDef {
+  texture: THREE.Texture;
+  rows: number;
+  cols: number;
+  frameCount: number;
+  fps: number;
 }
 
 interface Projectile {
@@ -72,6 +111,7 @@ interface Trap {
 interface RoomPlan {
   name: string;
   subtitle: string;
+  arena: ArenaId;
   enemies: EnemyKind[];
 }
 
@@ -449,10 +489,9 @@ camera.position.set(0, 0, 20);
 camera.lookAt(0, 0, 0);
 
 const arenaGroup = new THREE.Group();
-const propGroup = new THREE.Group();
 const actorGroup = new THREE.Group();
 const fxGroup = new THREE.Group();
-scene.add(arenaGroup, propGroup, actorGroup, fxGroup);
+scene.add(arenaGroup, actorGroup, fxGroup);
 
 const world = {
   width: 32,
@@ -465,22 +504,50 @@ const rooms: RoomPlan[] = [
   {
     name: "The Batter Gate",
     subtitle: "Burger shades smell fresh syrup.",
+    arena: "batterGate",
     enemies: ["burger", "burger", "shade", "shade"]
   },
   {
-    name: "Griddle Crossing",
-    subtitle: "The waffle floor is heating up.",
-    enemies: ["burger", "burger", "mage", "shade", "shade"]
+    name: "Syrup Canal",
+    subtitle: "Sticky bridges, faster mages, worse decisions.",
+    arena: "syrupCanal",
+    enemies: ["shade", "mage", "mage", "burger", "shade"]
   },
   {
-    name: "The Cheeseburger Styx",
-    subtitle: "A crunchy ambush rises.",
-    enemies: ["burger", "burger", "burger", "mage", "mage", "shade"]
+    name: "Griddle Foundry",
+    subtitle: "The waffle irons have started walking.",
+    arena: "griddleFoundry",
+    enemies: ["golem", "burger", "mage", "shade", "golem"]
   },
   {
-    name: "Birthday Throne",
-    subtitle: "The triple-stack champion wants the last waffle.",
-    enemies: ["boss"]
+    name: "The Griddle Baron's Anvil",
+    subtitle: "A furnace knight blocks the birthday table.",
+    arena: "griddleFoundry",
+    enemies: ["griddleBoss"]
+  },
+  {
+    name: "Candle Crypt",
+    subtitle: "Every candle is judging your build.",
+    arena: "candleCrypt",
+    enemies: ["shade", "mage", "golem", "shade", "mage", "burger"]
+  },
+  {
+    name: "The Candle Lich Vigil",
+    subtitle: "Blue flames, melted wax, no refund.",
+    arena: "candleCrypt",
+    enemies: ["candleBoss"]
+  },
+  {
+    name: "Burger Basilica",
+    subtitle: "The royal kitchen throws everything at once.",
+    arena: "burgerBasilica",
+    enemies: ["burger", "burger", "golem", "mage", "shade", "golem", "mage"]
+  },
+  {
+    name: "The Triple Stack Throne",
+    subtitle: "The final hamburger wants the last waffle.",
+    arena: "burgerBasilica",
+    enemies: ["burgerBoss"]
   }
 ];
 
@@ -491,7 +558,9 @@ const moveInput = new THREE.Vector2();
 const tmp = new THREE.Vector2();
 const tmp2 = new THREE.Vector2();
 
-const heroTexture = new THREE.TextureLoader().load(heroSheetUrl);
+const textureLoader = new THREE.TextureLoader();
+
+const heroTexture = loadTexture(heroSheetUrl);
 heroTexture.colorSpace = THREE.SRGBColorSpace;
 heroTexture.minFilter = THREE.LinearFilter;
 heroTexture.magFilter = THREE.LinearFilter;
@@ -509,17 +578,54 @@ hero.center.set(0.5, 0.28);
 hero.renderOrder = 2000;
 actorGroup.add(hero);
 
+const arenaTextures: Record<ArenaId, THREE.Texture> = {
+  batterGate: loadTexture(arenaBatterGateUrl),
+  griddleFoundry: loadTexture(arenaGriddleFoundryUrl),
+  syrupCanal: loadTexture(arenaSyrupCanalUrl),
+  candleCrypt: loadTexture(arenaCandleCryptUrl),
+  burgerBasilica: loadTexture(arenaBurgerBasilicaUrl)
+};
+
+const arenaBackdropMaterial = new THREE.MeshBasicMaterial({
+  map: arenaTextures.batterGate,
+  color: "#ffffff"
+});
+let arenaBackdrop: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null = null;
+
 const textures = {
-  burger: makeBurgerTexture(false),
-  boss: makeBurgerTexture(true),
-  shade: makeShadeTexture(),
-  mage: makeMageTexture(),
   waffle: makeWaffleTexture(),
   slash: makeSlashTexture(),
   syrup: makeSyrupTexture(),
   spark: makeSparkTexture(),
-  trap: makeTrapTexture(),
-  boon: makeBoonTexture()
+  trap: makeTrapTexture()
+};
+
+const enemySheets: Record<EnemyKind, SpriteSheetDef> = {
+  burger: makeSpriteSheet(burgerBruiserSheetUrl, 2, 2, 7.5),
+  shade: makeSpriteSheet(berryJamShadeSheetUrl, 2, 2, 8.5),
+  mage: makeSpriteSheet(syrupMageSheetUrl, 2, 2, 7),
+  golem: makeSpriteSheet(waffleGolemSheetUrl, 2, 2, 5.5),
+  griddleBoss: makeSpriteSheet(griddleBaronSheetUrl, 3, 3, 6),
+  candleBoss: makeSpriteSheet(candleLichSheetUrl, 3, 3, 6.5),
+  burgerBoss: makeSpriteSheet(burgerEmperorSheetUrl, 3, 3, 5.8)
+};
+
+const enemyStats: Record<EnemyKind, {
+  hp: number;
+  speed: number;
+  radius: number;
+  damage: number;
+  scale: number;
+  score: number;
+  boss?: boolean;
+}> = {
+  burger: { hp: 72, speed: 2.5, radius: 0.58, damage: 12, scale: 1.32, score: 42 },
+  shade: { hp: 54, speed: 3.15, radius: 0.5, damage: 9, scale: 1.18, score: 38 },
+  mage: { hp: 78, speed: 2.05, radius: 0.56, damage: 10, scale: 1.28, score: 68 },
+  golem: { hp: 126, speed: 1.75, radius: 0.72, damage: 15, scale: 1.55, score: 88 },
+  griddleBoss: { hp: 420, speed: 1.38, radius: 1.08, damage: 18, scale: 2.65, score: 420, boss: true },
+  candleBoss: { hp: 460, speed: 1.56, radius: 1.0, damage: 16, scale: 2.52, score: 480, boss: true },
+  burgerBoss: { hp: 560, speed: 1.28, radius: 1.24, damage: 20, scale: 2.95, score: 650, boss: true }
 };
 
 const player = {
@@ -561,7 +667,6 @@ const enemies: Enemy[] = [];
 const projectiles: Projectile[] = [];
 const particles: Particle[] = [];
 const traps: Trap[] = [];
-const props: THREE.Object3D[] = [];
 const boonsOwned = new Set<BoonId>();
 
 buildArena();
@@ -629,6 +734,29 @@ renderer.domElement.addEventListener("contextmenu", (event) => {
 
 setupTouchControls();
 
+window.__waffleTest = {
+  previewRoom(index: number): void {
+    mode = "playing";
+    overlay.innerHTML = "";
+    player.pos.set(0, -3);
+    player.vel.set(0, 0);
+    player.invulnerable = 0;
+    spawnRoom(THREE.MathUtils.clamp(Math.floor(index), 0, rooms.length - 1));
+    updateHud();
+  },
+  roomSummary() {
+    const arenaIds = [...new Set(rooms.map((room) => room.arena))];
+    const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
+    return {
+      roomCount: rooms.length,
+      bossRoomCount: rooms.filter((room) => room.enemies.some(isBossKind)).length,
+      arenaIds,
+      enemyKinds,
+      roomNames: rooms.map((room) => room.name)
+    };
+  }
+};
+
 let last = performance.now();
 requestAnimationFrame(loop);
 
@@ -693,13 +821,14 @@ function spawnRoom(index: number): void {
   waveClearTimer = 0;
 
   const plan = rooms[index] ?? rooms[0]!;
+  setArena(plan.arena);
   roomName.textContent = plan.name;
   roomSub.textContent = plan.subtitle;
 
   for (let i = 0; i < plan.enemies.length; i += 1) {
     const kind = plan.enemies[i]!;
     const angle = (i / Math.max(plan.enemies.length, 1)) * Math.PI * 2 + randomRange(-0.25, 0.25);
-    const radius = kind === "boss" ? 0 : randomRange(5.5, 8.4);
+    const radius = isBossKind(kind) ? 0 : randomRange(5.5, 8.4);
     const x = Math.cos(angle) * radius;
     const y = Math.sin(angle) * radius + 1.2;
     spawnEnemy(kind, new THREE.Vector2(x, y));
@@ -858,15 +987,15 @@ function updateEnemies(dt: number): void {
         enemy.specialTimer = randomRange(1.25, 2.1);
         enemyShoot(enemy);
       }
-    } else if (enemy.kind === "boss") {
+    } else if (isBossKind(enemy.kind)) {
       enemy.vel.addScaledVector(dir, distance > 2.6 ? enemy.speed : -enemy.speed * 0.25);
 
       if (enemy.specialTimer <= 0) {
-        enemy.specialTimer = enemy.hp < enemy.maxHp * 0.45 ? 1.4 : 2.2;
+        enemy.specialTimer = enemy.hp < enemy.maxHp * 0.45 ? 1.15 : 1.9;
         bossAttack(enemy);
       }
     } else {
-      const wobble = enemy.kind === "shade" ? Math.sin(enemy.phase * 5 + enemy.id) * 0.9 : Math.sin(enemy.phase * 3) * 0.35;
+      const wobble = enemy.kind === "shade" ? Math.sin(enemy.phase * 5 + enemy.id) * 0.9 : Math.sin(enemy.phase * 3) * (enemy.kind === "golem" ? 0.18 : 0.35);
       enemy.vel.addScaledVector(dir, enemy.speed);
       enemy.vel.add(new THREE.Vector2(-dir.y, dir.x).multiplyScalar(wobble));
     }
@@ -877,7 +1006,7 @@ function updateEnemies(dt: number): void {
 
     if (distance < enemy.radius + player.radius + 0.18 && enemy.attackCooldown <= 0) {
       damagePlayer(enemy.damage);
-      enemy.attackCooldown = enemy.kind === "boss" ? 0.7 : 0.95;
+      enemy.attackCooldown = enemy.boss ? 0.7 : 0.95;
       knockEnemy(enemy, dir.clone().multiplyScalar(-2.6));
     }
 
@@ -1280,13 +1409,13 @@ function dropTrap(): void {
 function damageEnemy(enemy: Enemy, amount: number, knockback: V2): void {
   enemy.hp -= amount;
   enemy.vel.add(knockback);
-  enemy.stun = Math.max(enemy.stun, enemy.kind === "boss" ? 0.08 : 0.16);
+  enemy.stun = Math.max(enemy.stun, enemy.boss ? 0.08 : 0.16);
   enemy.sprite.scale.multiplyScalar(1.04);
-  burst(enemy.pos, enemy.kind === "boss" ? "#ff7d66" : "#ffd166", enemy.kind === "boss" ? 10 : 6);
+  burst(enemy.pos, enemy.boss ? "#ff7d66" : "#ffd166", enemy.boss ? 10 : 6);
 
   if (enemy.hp <= 0) {
-    player.score += enemy.kind === "boss" ? 500 : enemy.kind === "mage" ? 65 : 40;
-    burst(enemy.pos, "#fff2a8", enemy.kind === "boss" ? 34 : 16);
+    player.score += enemyStats[enemy.kind].score;
+    burst(enemy.pos, "#fff2a8", enemy.boss ? 34 : 16);
     removeEnemy(enemy);
   }
 }
@@ -1318,18 +1447,19 @@ function aimDirection(): V2 {
 }
 
 function spawnEnemy(kind: EnemyKind, pos: V2): Enemy {
-  const boss = kind === "boss";
-  const mage = kind === "mage";
-  const shade = kind === "shade";
-  const texture = kind === "boss" ? textures.boss : kind === "mage" ? textures.mage : kind === "shade" ? textures.shade : textures.burger;
+  const stats = enemyStats[kind];
+  const sheet = enemySheets[kind];
+  const map = sheet.texture.clone();
+  map.repeat.set(1 / sheet.cols, 1 / sheet.rows);
+  map.offset.set(0, 1 - 1 / sheet.rows);
+  map.needsUpdate = true;
   const material = new THREE.SpriteMaterial({
-    map: texture,
+    map,
     transparent: true,
     depthTest: false
   });
   const sprite = new THREE.Sprite(material);
-  const scale = boss ? 3.1 : mage ? 1.34 : shade ? 1.18 : 1.38;
-  sprite.scale.setScalar(scale);
+  sprite.scale.setScalar(stats.scale);
   sprite.center.set(0.5, 0.36);
   actorGroup.add(sprite);
 
@@ -1337,75 +1467,91 @@ function spawnEnemy(kind: EnemyKind, pos: V2): Enemy {
     id: ++enemyId,
     kind,
     sprite,
+    sheet,
     pos,
     vel: new THREE.Vector2(),
-    radius: boss ? 1.18 : mage ? 0.56 : shade ? 0.48 : 0.58,
-    hp: boss ? 480 : mage ? 74 : shade ? 48 : 66,
-    maxHp: boss ? 480 : mage ? 74 : shade ? 48 : 66,
-    speed: boss ? 1.45 : mage ? 2.05 : shade ? 3.05 : 2.45,
-    damage: boss ? 18 : mage ? 10 : shade ? 9 : 12,
+    radius: stats.radius,
+    hp: stats.hp,
+    maxHp: stats.hp,
+    speed: stats.speed,
+    damage: stats.damage,
     attackCooldown: randomRange(0.2, 0.8),
     specialTimer: randomRange(0.8, 1.8),
     stun: 0,
-    phase: randomRange(0, Math.PI * 2)
+    phase: randomRange(0, Math.PI * 2),
+    baseScale: stats.scale,
+    boss: stats.boss === true
   };
   enemies.push(enemy);
   syncEnemySprite(enemy);
-  burst(pos, boss ? "#ff8066" : "#ffd166", boss ? 24 : 8);
+  burst(pos, enemy.boss ? "#ff8066" : "#ffd166", enemy.boss ? 24 : 8);
   return enemy;
 }
 
 function syncEnemySprite(enemy: Enemy): void {
-  const hop = Math.sin(enemy.phase * (enemy.kind === "boss" ? 3.2 : 5.8)) * 0.045;
-  const base = enemy.kind === "boss" ? 3.1 : enemy.kind === "mage" ? 1.34 : enemy.kind === "shade" ? 1.18 : 1.38;
+  const hop = Math.sin(enemy.phase * (enemy.boss ? 3.2 : enemy.kind === "golem" ? 3.8 : 5.8)) * (enemy.kind === "golem" ? 0.025 : 0.045);
   const hurtPulse = enemy.stun > 0 ? 1.08 : 1;
+  const frame = Math.floor(enemy.phase * enemy.sheet.fps + enemy.id) % enemy.sheet.frameCount;
+  const col = frame % enemy.sheet.cols;
+  const row = Math.floor(frame / enemy.sheet.cols);
+  enemy.sprite.material.map?.offset.set(col / enemy.sheet.cols, 1 - (row + 1) / enemy.sheet.rows);
   enemy.sprite.position.set(enemy.pos.x, enemy.pos.y + hop, 3);
-  enemy.sprite.scale.setScalar(base * hurtPulse);
+  enemy.sprite.scale.setScalar(enemy.baseScale * hurtPulse);
   enemy.sprite.renderOrder = renderOrderFor(enemy.pos.y, 90);
   enemy.sprite.material.opacity = THREE.MathUtils.clamp(0.55 + (enemy.hp / enemy.maxHp) * 0.45, 0.55, 1);
 }
 
 function enemyShoot(enemy: Enemy): void {
   const dir = player.pos.clone().sub(enemy.pos).normalize();
-  createProjectile({
+  const projectile = createProjectile({
     texture: textures.syrup,
     pos: enemy.pos.clone().addScaledVector(dir, 0.6),
-    vel: dir.multiplyScalar(enemy.kind === "boss" ? 6.2 : 5.6),
+    vel: dir.multiplyScalar(enemy.boss ? 6.2 : 5.6),
     radius: 0.34,
     scale: 0.58,
-    damage: enemy.kind === "boss" ? 14 : 10,
+    damage: enemy.boss ? 14 : 10,
     team: "enemy",
     life: 3,
     pierce: 0,
     spin: -4
   });
+  projectile.sprite.material.color.set(enemy.kind === "candleBoss" ? "#a9dcff" : "#ffb65c");
 }
 
 function bossAttack(enemy: Enemy): void {
   const hpRatio = enemy.hp / enemy.maxHp;
-  const count = hpRatio < 0.45 ? 12 : 8;
+  const count = enemy.kind === "burgerBoss" ? (hpRatio < 0.45 ? 16 : 12) : hpRatio < 0.45 ? 12 : 8;
   const base = Math.atan2(player.pos.y - enemy.pos.y, player.pos.x - enemy.pos.x);
 
   for (let i = 0; i < count; i += 1) {
-    const angle = base + (i - (count - 1) / 2) * 0.22;
+    const spread = enemy.kind === "candleBoss" ? 0.38 : enemy.kind === "burgerBoss" ? 0.2 : 0.26;
+    const angle = enemy.kind === "griddleBoss"
+      ? (i / count) * Math.PI * 2 + enemy.phase * 0.45
+      : base + (i - (count - 1) / 2) * spread;
     const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
-    createProjectile({
+    const projectile = createProjectile({
       texture: textures.syrup,
       pos: enemy.pos.clone().addScaledVector(dir, 1.1),
-      vel: dir.multiplyScalar(5.2 + i * 0.06),
+      vel: dir.multiplyScalar(enemy.kind === "candleBoss" ? 4.5 + i * 0.04 : 5.2 + i * 0.06),
       radius: 0.34,
-      scale: 0.62,
-      damage: 12,
+      scale: enemy.kind === "burgerBoss" ? 0.7 : 0.62,
+      damage: enemy.kind === "burgerBoss" ? 14 : 12,
       team: "enemy",
       life: 2.8,
       pierce: 0,
       spin: 4
     });
+    projectile.sprite.material.color.set(enemy.kind === "candleBoss" ? "#a9dcff" : enemy.kind === "griddleBoss" ? "#ff9859" : "#ffd166");
   }
 
   if (hpRatio < 0.65 && enemies.length < 8) {
     const angle = randomRange(0, Math.PI * 2);
-    spawnEnemy(Math.random() > 0.45 ? "shade" : "burger", enemy.pos.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(2.4)));
+    const summon = enemy.kind === "candleBoss"
+      ? (Math.random() > 0.35 ? "shade" : "mage")
+      : enemy.kind === "griddleBoss"
+        ? (Math.random() > 0.45 ? "golem" : "burger")
+        : (Math.random() > 0.45 ? "burger" : "shade");
+    spawnEnemy(summon, enemy.pos.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(2.4)));
   }
 
   shake = Math.max(shake, 0.2);
@@ -1513,21 +1659,14 @@ function spawnParticle(pos: V2, vel: V2, life: number, startScale: number, endSc
 }
 
 function buildArena(): void {
-  const floor = new THREE.Mesh(
+  arenaBackdrop = new THREE.Mesh(
     new THREE.PlaneGeometry(world.width, world.height),
-    new THREE.MeshBasicMaterial({ color: "#292231" })
+    arenaBackdropMaterial
   );
-  floor.position.z = -2;
-  arenaGroup.add(floor);
+  arenaBackdrop.position.z = -2;
+  arenaGroup.add(arenaBackdrop);
 
-  const inner = new THREE.Mesh(
-    new THREE.PlaneGeometry(world.width - 2.2, world.height - 2.2),
-    new THREE.MeshBasicMaterial({ color: "#343044" })
-  );
-  inner.position.z = -1.8;
-  arenaGroup.add(inner);
-
-  const gridMaterial = new THREE.LineBasicMaterial({ color: "#584462", transparent: true, opacity: 0.24 });
+  const gridMaterial = new THREE.LineBasicMaterial({ color: "#e8d6a0", transparent: true, opacity: 0.08 });
   const grid = new THREE.Group();
 
   for (let x = -world.halfWidth + 2; x <= world.halfWidth - 2; x += 2) {
@@ -1548,32 +1687,14 @@ function buildArena(): void {
 
   arenaGroup.add(grid);
 
-  const wallMaterial = new THREE.MeshBasicMaterial({ color: "#1d1724" });
-  const trimMaterial = new THREE.MeshBasicMaterial({ color: "#8d5a36" });
+  const wallMaterial = new THREE.MeshBasicMaterial({ color: "#120d18", transparent: true, opacity: 0.28 });
+  const trimMaterial = new THREE.MeshBasicMaterial({ color: "#8d5a36", transparent: true, opacity: 0.36 });
   addWall(0, world.halfHeight + 0.25, world.width + 1, 0.9, wallMaterial);
   addWall(0, -world.halfHeight - 0.25, world.width + 1, 0.9, wallMaterial);
   addWall(-world.halfWidth - 0.25, 0, 0.9, world.height + 1, wallMaterial);
   addWall(world.halfWidth + 0.25, 0, 0.9, world.height + 1, wallMaterial);
   addWall(0, world.halfHeight - 0.42, world.width - 1.7, 0.16, trimMaterial);
   addWall(0, -world.halfHeight + 0.42, world.width - 1.7, 0.16, trimMaterial);
-
-  const propPositions = [
-    [-12.4, 6.6],
-    [12.2, 6.2],
-    [-12.8, -6.4],
-    [12.1, -6.8],
-    [0, 7.3],
-    [0, -7.1]
-  ] as const;
-
-  for (const [x, y] of propPositions) {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: textures.boon, transparent: true, depthTest: false }));
-    sprite.position.set(x, y, 1);
-    sprite.scale.set(1.4, 1.4, 1);
-    sprite.renderOrder = renderOrderFor(y, -80);
-    propGroup.add(sprite);
-    props.push(sprite);
-  }
 }
 
 function addWall(x: number, y: number, width: number, height: number, material: THREE.Material): void {
@@ -1688,6 +1809,7 @@ function removeEnemy(enemy: Enemy): void {
   }
 
   actorGroup.remove(enemy.sprite);
+  enemy.sprite.material.map?.dispose();
   enemy.sprite.material.dispose();
 }
 
@@ -1736,6 +1858,42 @@ function renderOrderFor(y: number, offset: number): number {
 
 function randomRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
+}
+
+function loadTexture(url: string): THREE.Texture {
+  const texture = textureLoader.load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  return texture;
+}
+
+function makeSpriteSheet(url: string, rows: number, cols: number, fps: number): SpriteSheetDef {
+  const texture = loadTexture(url);
+  return {
+    texture,
+    rows,
+    cols,
+    frameCount: rows * cols,
+    fps
+  };
+}
+
+function setArena(id: ArenaId): void {
+  arenaBackdropMaterial.map = arenaTextures[id];
+  arenaBackdropMaterial.needsUpdate = true;
+  const colors: Record<ArenaId, string> = {
+    batterGate: "#1d171c",
+    griddleFoundry: "#171419",
+    syrupCanal: "#121923",
+    candleCrypt: "#151421",
+    burgerBasilica: "#1b1717"
+  };
+  scene.background = new THREE.Color(colors[id]);
+}
+
+function isBossKind(kind: EnemyKind): boolean {
+  return kind === "griddleBoss" || kind === "candleBoss" || kind === "burgerBoss";
 }
 
 function makeTexture(draw: (ctx: CanvasRenderingContext2D, size: number) => void, size = 256): THREE.CanvasTexture {
@@ -2037,40 +2195,6 @@ function makeTrapTexture(): THREE.CanvasTexture {
     ctx.strokeStyle = "#a96024";
     ctx.lineWidth = 9;
     ctx.strokeRect(-44, -44, 88, 88);
-  });
-}
-
-function makeBoonTexture(): THREE.CanvasTexture {
-  return makeTexture((ctx, size) => {
-    ctx.translate(size / 2, size / 2);
-    drawBlobShadow(ctx, 0, 62, 70, 16);
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = "#1d1422";
-    ctx.fillStyle = "#386d62";
-    roundRect(ctx, -58, -38, 116, 92, 18);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ffd166";
-    ctx.beginPath();
-    ctx.moveTo(-36, -44);
-    ctx.lineTo(0, -78);
-    ctx.lineTo(36, -44);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#f1ad39";
-    ctx.beginPath();
-    ctx.arc(0, 6, 34, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = "#a96024";
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.moveTo(-24, 6);
-    ctx.lineTo(24, 6);
-    ctx.moveTo(0, -18);
-    ctx.lineTo(0, 30);
-    ctx.stroke();
   });
 }
 

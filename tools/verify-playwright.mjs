@@ -63,11 +63,35 @@ for (const config of [
   await page.waitForTimeout(800);
   const playingPixels = await sampleCanvas(page);
   await page.screenshot({ path: resolve(outDir, `${config.name}-playing.png`), fullPage: true });
+  const roomSummary = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.roomSummary();
+  });
+  const roomSamples = [];
+
+  for (let index = 0; index < roomSummary.roomCount; index += 1) {
+    await page.evaluate((roomIndex) => {
+      window.__waffleTest?.previewRoom(roomIndex);
+    }, index);
+    await page.waitForTimeout(220);
+    roomSamples.push({
+      index,
+      name: roomSummary.roomNames[index],
+      pixels: await sampleCanvas(page)
+    });
+  }
+
+  await page.screenshot({ path: resolve(outDir, `${config.name}-final-boss.png`), fullPage: true });
 
   results.push({
     viewport: config,
     titlePixels,
     playingPixels,
+    roomSummary,
+    roomSamples,
     errors,
     changedSamples: Math.abs(playingPixels.hash - titlePixels.hash)
   });
@@ -83,8 +107,18 @@ for (const result of results) {
   const titleOk = result.titlePixels.nonBlankRatio > 0.08 && result.titlePixels.uniqueColors > 24;
   const playingOk = result.playingPixels.nonBlankRatio > 0.08 && result.playingPixels.uniqueColors > 24;
   const changedOk = result.changedSamples > 1000;
+  const requiredEnemyKinds = ["burger", "shade", "mage", "golem", "griddleBoss", "candleBoss", "burgerBoss"];
+  const summaryOk =
+    result.roomSummary.roomCount >= 8
+    && result.roomSummary.bossRoomCount >= 3
+    && result.roomSummary.arenaIds.length >= 5
+    && requiredEnemyKinds.every((kind) => result.roomSummary.enemyKinds.includes(kind));
+  const roomSamplesOk =
+    result.roomSamples.length === result.roomSummary.roomCount
+    && new Set(result.roomSamples.map((sample) => sample.pixels.hash)).size >= 5
+    && result.roomSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !changedOk || result.errors.length > 0) {
+  if (!titleOk || !playingOk || !changedOk || !summaryOk || !roomSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }

@@ -8,12 +8,26 @@ from pathlib import Path
 from PIL import Image
 
 
-def main() -> int:
-    sheet = Path("assets/generated/sindre-hero/sheet-transparent.png")
-    rows = 4
-    cols = 4
-    margin = 3
+SHEETS = [
+    ("sindre-hero", Path("assets/generated/sindre-hero/sheet-transparent.png"), 4, 4, 3),
+    ("burger-bruiser", Path("assets/generated/enemies/burger-bruiser/sheet-transparent.png"), 2, 2, 2),
+    ("berry-jam-shade", Path("assets/generated/enemies/berry-jam-shade/sheet-transparent.png"), 2, 2, 2),
+    ("syrup-mage", Path("assets/generated/enemies/syrup-mage/sheet-transparent.png"), 2, 2, 2),
+    ("waffle-golem", Path("assets/generated/enemies/waffle-golem/sheet-transparent.png"), 2, 2, 2),
+    ("griddle-baron", Path("assets/generated/enemies/griddle-baron/sheet-transparent.png"), 3, 3, 2),
+    ("candle-lich", Path("assets/generated/enemies/candle-lich/sheet-transparent.png"), 3, 3, 2),
+    ("burger-emperor", Path("assets/generated/enemies/burger-emperor/sheet-transparent.png"), 3, 3, 2),
+]
 
+
+def main() -> int:
+    reports = [check_sheet(*sheet) for sheet in SHEETS]
+    failures = [failure for report in reports for failure in report["failures"]]
+    print(json.dumps({"sheets": reports, "failure_count": len(failures)}, indent=2))
+    return 1 if failures else 0
+
+
+def check_sheet(name: str, sheet: Path, rows: int, cols: int, margin: int) -> dict:
     image = Image.open(sheet).convert("RGBA")
     width, height = image.size
     cell_width = width // cols
@@ -36,7 +50,7 @@ def main() -> int:
             frames.append(frame)
 
             if bbox is None:
-                failures.append({**frame, "reason": "empty"})
+                failures.append({**frame, "sheet": name, "reason": "empty"})
                 continue
 
             left, top, right, bottom = bbox
@@ -48,19 +62,18 @@ def main() -> int:
             )
 
             if touches:
-                failures.append({**frame, "reason": "edge"})
+                failures.append({**frame, "sheet": name, "reason": "edge"})
 
-    report = {
+    return {
+        "name": name,
         "sheet": str(sheet),
         "size": [width, height],
+        "grid": [rows, cols],
         "cell_size": [cell_width, cell_height],
         "margin": margin,
         "frames": frames,
         "failures": failures,
     }
-    print(json.dumps(report, indent=2))
-
-    return 1 if failures else 0
 
 
 if __name__ == "__main__":

@@ -1,0 +1,180 @@
+{
+  "target": "creature",
+  "mode": "combat",
+  "prompt": "",
+  "role": "",
+  "input": "assets/generated/enemies/berry-jam-shade/raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 130,
+  "rows": 2,
+  "cols": 2,
+  "cell_size": 128,
+  "fit_scale": 0.84,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "feet",
+  "shared_scale": true,
+  "component_mode": "largest",
+  "component_padding": 8,
+  "min_component_area": 200,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "berry-jam-shade-1",
+    "berry-jam-shade-2",
+    "berry-jam-shade-3",
+    "berry-jam-shade-4"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        627,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 4,
+      "selected_component_area": 79617,
+      "selected_component_bbox": [
+        150,
+        189,
+        529,
+        488
+      ],
+      "crop_bbox": [
+        142,
+        181,
+        537,
+        496
+      ],
+      "edge_touch": false,
+      "output_size": [
+        79,
+        63
+      ],
+      "paste_position": [
+        24,
+        55
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        627,
+        0,
+        1254,
+        627
+      ],
+      "component_mode": "largest",
+      "component_count": 3,
+      "selected_component_area": 79685,
+      "selected_component_bbox": [
+        1,
+        255,
+        518,
+        501
+      ],
+      "crop_bbox": [
+        0,
+        247,
+        526,
+        509
+      ],
+      "edge_touch": true,
+      "output_size": [
+        105,
+        52
+      ],
+      "paste_position": [
+        11,
+        66
+      ]
+    },
+    {
+      "grid": [
+        1,
+        0
+      ],
+      "source_box": [
+        0,
+        627,
+        627,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 4,
+      "selected_component_area": 88129,
+      "selected_component_bbox": [
+        72,
+        148,
+        590,
+        417
+      ],
+      "crop_bbox": [
+        64,
+        140,
+        598,
+        425
+      ],
+      "edge_touch": false,
+      "output_size": [
+        107,
+        57
+      ],
+      "paste_position": [
+        10,
+        61
+      ]
+    },
+    {
+      "grid": [
+        1,
+        1
+      ],
+      "source_box": [
+        627,
+        627,
+        1254,
+        1254
+      ],
+      "component_mode": "largest",
+      "component_count": 7,
+      "selected_component_area": 67478,
+      "selected_component_bbox": [
+        92,
+        61,
+        466,
+        357
+      ],
+      "crop_bbox": [
+        84,
+        53,
+        474,
+        365
+      ],
+      "edge_touch": false,
+      "output_size": [
+        78,
+        62
+      ],
+      "paste_position": [
+        25,
+        56
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      0,
+      1
+    ]
+  ]
+}
