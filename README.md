@@ -4,6 +4,8 @@ Play it here: https://jedimemo.github.io/sth-birthday-game/
 
 Sindre's Waffle Adventure is a small browser action RPG about defending the birthday waffles from burger shades, syrup mages, candle liches, and oversized kitchen bosses. Fight through themed arenas, collect readable healing and powerup orbs, choose birthday boons between rooms, and build around scarce focus upgrades plus limited technique slots as the run escalates.
 
+Runs start in the Practice Griddle, a safe playground where you can move, attack, dash, cast, and cycle spells before stepping onto the glowing waffle portal to begin the real run.
+
 Between rooms you earn one focus point. Focus upgrades either a weapon style or a spell, so specializing in one path means leaving others behind. Technique picks are limited to three per run and come with tradeoffs such as more weapon damage for less health, faster spells for weaker strikes, or more drops for weaker healing.
 
 ## Controls
@@ -22,7 +24,7 @@ Touch controls are available on mobile, with a left movement stick, holdable act
 Standard gamepads are supported:
 
 - Left stick: move
-- Right stick: aim
+- Left stick direction also aims attacks and spells
 - West / X / Square: strike
 - East / B / Circle: dash
 - South / A / Cross: cast active spell
@@ -31,7 +33,8 @@ Standard gamepads are supported:
 - Right trigger: strike
 - Left bumper or D-pad left/right: cycle spells
 - Right bumper or D-pad up/down: cycle weapons
-- Any button: start or restart from title and end screens
+- D-pad or left stick: move menu focus
+- South / A / Cross or Start: select focused menu item
 
 When testing from a local `file://` URL, focus the game tab and press any controller button once. Some browsers only expose a connected gamepad to the page after that first press. If your browser still reports no gamepads, use `npm run dev` and open `http://127.0.0.1:5173`.
 

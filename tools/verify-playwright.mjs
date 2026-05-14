@@ -82,18 +82,26 @@ for (const config of [
 
   const titlePixels = await sampleCanvas(page);
   const titleControls = await page.evaluate(() => document.querySelector(".controlGuide")?.textContent?.replace(/\s+/g, " ").trim() ?? "");
+  const titleMenu = await menuState(page);
   await page.screenshot({ path: resolve(outDir, `${config.name}-title.png`), fullPage: true });
 
   if (config.gamepad) {
-    await setGamepad(page, { buttons: [8] });
+    await setGamepad(page, { buttons: [0] });
     await page.waitForTimeout(120);
     await setGamepad(page, {});
   } else {
-    await page.getByText("Begin Run").click();
+    await page.getByText("Enter Playground").click();
   }
 
   await page.waitForTimeout(250);
 
+  const playgroundState = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.playgroundState();
+  });
   let controlState = null;
   let touchExercise = null;
   let controllerExercise = null;
@@ -111,12 +119,12 @@ for (const config of [
       await setGamepad(page, { axes: [0.9, 0, 0, 0] });
       await page.waitForTimeout(320);
       const afterMove = await inputState(page);
-      await setGamepad(page, { axes: [0, 0, 1, 0] });
+      await setGamepad(page, { axes: [0.9, 0, 0, 0] });
       await page.waitForTimeout(120);
-      await setGamepad(page, { axes: [0, 0, 1, 0], buttons: [2] });
+      await setGamepad(page, { axes: [0.9, 0, 0, 0], buttons: [2] });
       await page.waitForTimeout(80);
       const afterAttack = await inputState(page);
-      await setGamepad(page, { axes: [0, 0, 1, 0] });
+      await setGamepad(page, {});
       await setGamepad(page, { buttons: [1] });
       await page.waitForTimeout(80);
       await setGamepad(page, {});
@@ -151,6 +159,23 @@ for (const config of [
   if (!controlState) {
     controlState = await inputState(page);
   }
+
+  const playgroundBeforePortal = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.playgroundState();
+  });
+  const portalExit = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.stepOnPortal();
+  });
+  await page.waitForTimeout(250);
+  const afterPortalState = await inputState(page);
 
   await page.waitForTimeout(800);
   const playingPixels = await sampleCanvas(page);
@@ -260,6 +285,38 @@ for (const config of [
     const after = window.__waffleTest.progressionState();
     return { before, chosen, after };
   });
+  let menuExercise = null;
+
+  if (config.gamepad) {
+    await page.evaluate(() => {
+      if (!window.__waffleTest) {
+        throw new Error("Missing __waffleTest hook");
+      }
+
+      window.__waffleTest.previewBoonMenu();
+    });
+    await page.waitForTimeout(120);
+    const beforeProgression = await progressionState(page);
+    const before = await menuState(page);
+    await setGamepad(page, { buttons: [15] });
+    await page.waitForTimeout(120);
+    await setGamepad(page, {});
+    await page.waitForTimeout(80);
+    const afterRight = await menuState(page);
+    await setGamepad(page, { buttons: [13] });
+    await page.waitForTimeout(120);
+    await setGamepad(page, {});
+    await page.waitForTimeout(80);
+    const afterDown = await menuState(page);
+    await setGamepad(page, { buttons: [0] });
+    await page.waitForTimeout(120);
+    await setGamepad(page, {});
+    await page.waitForTimeout(120);
+    const afterSelect = await inputState(page);
+    const afterProgression = await progressionState(page);
+    menuExercise = { beforeProgression, before, afterRight, afterDown, afterSelect, afterProgression };
+  }
+
   const roomSamples = [];
 
   for (let index = 0; index < roomSummary.roomCount; index += 1) {
@@ -302,12 +359,18 @@ for (const config of [
     viewport: config,
     titlePixels,
     titleControls,
+    titleMenu,
+    playgroundState,
+    playgroundBeforePortal,
+    portalExit,
+    afterPortalState,
     playingPixels,
     spellUi,
     touchUi,
     controlState,
     touchExercise,
     controllerExercise,
+    menuExercise,
     spellUpgrade,
     weaponUpgrade,
     techniqueChoice,
@@ -338,8 +401,17 @@ for (const result of results) {
   const requiredTechniqueIds = ["glassBatter", "syrupScholar", "ironBirthday", "dashChef", "trapwright", "greedyGriddle", "heavyServe", "swiftFrosting"];
   const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
   const requiredTouchLabels = ["Strike", "Dash", "Special", "Trap", "Spell", "Weapon"];
+  const titleMenuOk = result.titleMenu.labels.some((label) => label.includes("Enter Playground")) && result.titleMenu.focusedLabel.includes("Enter Playground");
   const titleControlsOk =
-    ["Keyboard", "Touch", "Controller", "West attack", "east dash", "South spell", "north cycle spell"].every((label) => result.titleControls.includes(label));
+    ["Keyboard", "Touch", "Controller", "Left stick move and aim", "West attack", "east dash", "South spell", "north cycle spell", "South or Start select"].every((label) => result.titleControls.includes(label));
+  const playgroundOk =
+    result.playgroundState.active === true
+    && result.playgroundState.portalActive === true
+    && result.playgroundState.distanceToPortal > 1
+    && result.playgroundBeforePortal.active === true
+    && result.playgroundBeforePortal.portalActive === true
+    && result.portalExit === "playing"
+    && result.afterPortalState.mode === "playing";
   const spellUiOk =
     result.spellUi.visible
     && result.spellUi.slotCount >= requiredSpellIds.length
@@ -389,6 +461,20 @@ for (const result of results) {
       && result.controllerExercise.after.spellIndex === 1
       && result.controllerExercise.after.weaponIndex === 1
     );
+  const controllerMenuOk =
+    !result.viewport.gamepad
+    || (
+      result.menuExercise
+      && result.menuExercise.before.labels.length > 1
+      && result.menuExercise.afterRight.focusIndex !== result.menuExercise.before.focusIndex
+      && result.menuExercise.afterDown.focusIndex !== result.menuExercise.afterRight.focusIndex
+      && result.menuExercise.afterSelect.activeInput === "gamepad"
+      && (
+        result.menuExercise.afterSelect.mode === "playing"
+        || result.menuExercise.afterProgression.focusPoints < result.menuExercise.beforeProgression.focusPoints
+        || result.menuExercise.afterProgression.techniques.length > result.menuExercise.beforeProgression.techniques.length
+      )
+    );
   const spellUpgradeOk =
     result.spellUpgrade.upgraded === true
     && result.spellUpgrade.after.levels.syrupNova === result.spellUpgrade.before.levels.syrupNova + 1
@@ -428,7 +514,7 @@ for (const result of results) {
     && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
     && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !titleControlsOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !touchUiOk || !mobileControlsOk || !controllerControlsOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !titleMenuOk || !titleControlsOk || !playgroundOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !touchUiOk || !mobileControlsOk || !controllerControlsOk || !controllerMenuOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }
@@ -514,5 +600,25 @@ async function inputState(page) {
     }
 
     return window.__waffleTest.inputState();
+  });
+}
+
+async function menuState(page) {
+  return page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.menuState();
+  });
+}
+
+async function progressionState(page) {
+  return page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.progressionState();
   });
 }

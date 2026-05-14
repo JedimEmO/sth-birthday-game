@@ -19,7 +19,7 @@ if (!app) {
   throw new Error("Missing #app root");
 }
 
-type Mode = "title" | "playing" | "boon" | "won" | "lost";
+type Mode = "title" | "playground" | "playing" | "boon" | "won" | "lost";
 type ArenaId = "batterGate" | "griddleFoundry" | "syrupCanal" | "candleCrypt" | "burgerBasilica";
 type EnemyKind = "burger" | "shade" | "mage" | "golem" | "griddleBoss" | "candleBoss" | "burgerBoss";
 type PowerupKind = "heal" | "syrup" | "haste" | "might";
@@ -51,6 +51,9 @@ declare global {
   interface Window {
     __waffleTest?: {
       previewRoom: (index: number) => void;
+      previewPlayground: () => void;
+      previewBoonMenu: () => void;
+      stepOnPortal: () => Mode;
       previewPowerups: () => void;
       previewPickup: (kind: PowerupKind) => void;
       previewSpell: (index: number) => void;
@@ -101,6 +104,17 @@ declare global {
         secureContext: boolean;
         protocol: string;
         touchButtons: string[];
+      };
+      menuState: () => {
+        labels: string[];
+        focusedLabel: string;
+        focusIndex: number;
+      };
+      playgroundState: () => {
+        active: boolean;
+        portalActive: boolean;
+        portalPos: { x: number; y: number } | null;
+        distanceToPortal: number | null;
       };
       roomSummary: () => {
         roomCount: number;
@@ -197,6 +211,14 @@ interface Powerup {
   vel: V2;
   radius: number;
   life: number;
+  phase: number;
+}
+
+interface Portal {
+  waffle: THREE.Sprite;
+  ring: THREE.Sprite;
+  pos: V2;
+  radius: number;
   phase: number;
 }
 
@@ -556,6 +578,61 @@ const css = `
     box-shadow: 0 2px 0 #a86325, 0 8px 18px rgba(0, 0, 0, 0.2);
   }
 
+  button.isMenuFocus {
+    outline: 3px solid #82f7ff;
+    outline-offset: 3px;
+    box-shadow: 0 5px 0 #315a62, 0 0 0 6px rgba(130, 247, 255, 0.16), 0 16px 28px rgba(0, 0, 0, 0.28);
+  }
+
+  .levelMenu {
+    width: min(980px, calc(100vw - 32px));
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+    text-align: left;
+  }
+
+  .levelTitle {
+    font-size: clamp(30px, 5vw, 52px);
+  }
+
+  .levelIntro {
+    margin: 10px 0 0;
+    color: #e4eeff;
+    font-size: 15px;
+    line-height: 1.35;
+  }
+
+  .levelStats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .levelStats span {
+    min-width: 0;
+    border: 1px solid rgba(255, 209, 102, 0.28);
+    border-radius: 8px;
+    padding: 10px;
+    background: rgba(15, 20, 28, 0.58);
+    color: #d7e7ff;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .levelStats strong {
+    display: block;
+    color: #ffd166;
+    font-size: 18px;
+    line-height: 1.1;
+  }
+
+  .upgradeColumns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
   .boonGrid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -598,6 +675,10 @@ const css = `
     text-align: left;
   }
 
+  .levelMenu > .weaponUpgradeHeader {
+    margin-top: 18px;
+  }
+
   .spellUpgradeHeader,
   .techniqueHeader,
   .weaponUpgradeHeader {
@@ -608,6 +689,22 @@ const css = `
     color: #fff7d1;
     font-size: 13px;
     font-weight: 800;
+  }
+
+  .spellUpgradeHeader em,
+  .techniqueHeader em,
+  .weaponUpgradeHeader em {
+    color: #82f7ff;
+    font-style: normal;
+    font-size: 12px;
+    text-align: right;
+  }
+
+  .menuHint {
+    margin-top: 5px;
+    color: #aebbd4;
+    font-size: 12px;
+    line-height: 1.3;
   }
 
   .spellUpgradeGrid,
@@ -621,6 +718,10 @@ const css = `
 
   .weaponUpgradeGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .spellUpgradeGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .techniqueGrid {
@@ -671,6 +772,20 @@ const css = `
     color: #d7e7ff;
     font-size: 12px;
     line-height: 1.25;
+  }
+
+  .spellUpgradeButton .buttonStatus,
+  .techniqueButton .buttonStatus,
+  .weaponUpgradeButton .buttonStatus,
+  .boonButton .buttonStatus {
+    color: #ffd166;
+    font-weight: 850;
+  }
+
+  .techniqueButton.isChosen:disabled {
+    opacity: 1;
+    border-color: rgba(255, 209, 102, 0.72);
+    background: #2b2632;
   }
 
   #touchControls {
@@ -808,6 +923,15 @@ const css = `
     }
 
     .controlGuide {
+      grid-template-columns: 1fr;
+    }
+
+    .levelMenu {
+      max-height: calc(100vh - 20px);
+    }
+
+    .levelStats,
+    .upgradeColumns {
       grid-template-columns: 1fr;
     }
 
@@ -998,6 +1122,7 @@ let gamepadMapping = "";
 let gamepadIndex: number | null = null;
 let preferredGamepadIndex: number | null = null;
 let activeInput: InputMode = "pointer";
+let menuStickReady = true;
 
 const textureLoader = new THREE.TextureLoader();
 
@@ -1297,6 +1422,9 @@ const traps: Trap[] = [];
 const powerups: Powerup[] = [];
 const boonsOwned = new Set<BoonId>();
 const techniquesOwned = new Set<TechniqueId>();
+let playgroundPortal: Portal | null = null;
+let menuButtons: HTMLButtonElement[] = [];
+let menuFocusIndex = 0;
 
 buildArena();
 showTitle();
@@ -1322,18 +1450,18 @@ window.addEventListener("gamepaddisconnected", (event) => {
   }
 });
 window.addEventListener("keydown", (event) => {
-  if (event.code === "Space" || event.code === "Tab") {
+  if (event.code === "Space" || event.code === "Tab" || (isMenuMode() && event.code.startsWith("Arrow"))) {
     event.preventDefault();
   }
 
-  if (event.code === "Enter" && (mode === "title" || mode === "won" || mode === "lost")) {
-    startGame();
+  if (isMenuMode() && handleMenuKey(event.code)) {
+    event.preventDefault();
     return;
   }
 
   keys.add(event.code);
 
-  if (mode !== "playing") {
+  if (!isActionMode()) {
     return;
   }
 
@@ -1368,11 +1496,11 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   updatePointer(event.clientX, event.clientY);
 
   if (mode === "title") {
-    startGame();
+    startPlayground();
     return;
   }
 
-  if (mode !== "playing") {
+  if (!isActionMode()) {
     return;
   }
 
@@ -1410,15 +1538,40 @@ window.__waffleTest = {
   previewRoom(index: number): void {
     mode = "playing";
     overlay.innerHTML = "";
+    clearMenuFocus();
+    removePlaygroundPortal();
     player.pos.set(0, -3);
     player.vel.set(0, 0);
     player.invulnerable = 0;
     spawnRoom(THREE.MathUtils.clamp(Math.floor(index), 0, rooms.length - 1));
     updateHud();
   },
+  previewPlayground(): void {
+    startPlayground();
+  },
+  previewBoonMenu(): void {
+    mode = "boon";
+    player.focusPoints = Math.max(player.focusPoints, 2);
+    showBoonChoices();
+    updateHud();
+  },
+  stepOnPortal(): Mode {
+    if (!playgroundPortal) {
+      startPlayground();
+    }
+
+    if (playgroundPortal) {
+      player.pos.copy(playgroundPortal.pos);
+      updatePlaygroundPortal(0);
+    }
+
+    return mode;
+  },
   previewPowerups(): void {
     mode = "playing";
     overlay.innerHTML = "";
+    clearMenuFocus();
+    removePlaygroundPortal();
     player.pos.set(0, -3);
     clearArray(powerups, removePowerup);
 
@@ -1431,6 +1584,8 @@ window.__waffleTest = {
   previewPickup(kind: PowerupKind): void {
     mode = "playing";
     overlay.innerHTML = "";
+    clearMenuFocus();
+    removePlaygroundPortal();
     player.pos.set(0, -3);
     applyPowerup(kind);
     updateHud();
@@ -1438,6 +1593,8 @@ window.__waffleTest = {
   previewSpell(index: number): void {
     mode = "playing";
     overlay.innerHTML = "";
+    clearMenuFocus();
+    removePlaygroundPortal();
     player.pos.set(0, -3);
     player.specialCooldown = 0;
     selectSpell(index, false);
@@ -1517,6 +1674,21 @@ window.__waffleTest = {
       touchButtons: [...touch.querySelectorAll<HTMLButtonElement>("button[data-act]")].map((button) => button.textContent?.trim() ?? "")
     };
   },
+  menuState() {
+    return {
+      labels: menuButtons.map((button) => button.textContent?.replace(/\s+/g, " ").trim() ?? ""),
+      focusedLabel: menuButtons[menuFocusIndex]?.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      focusIndex: menuFocusIndex
+    };
+  },
+  playgroundState() {
+    return {
+      active: mode === "playground",
+      portalActive: playgroundPortal !== null,
+      portalPos: playgroundPortal ? { x: playgroundPortal.pos.x, y: playgroundPortal.pos.y } : null,
+      distanceToPortal: playgroundPortal ? player.pos.distanceTo(playgroundPortal.pos) : null
+    };
+  },
   roomSummary() {
     const arenaIds = [...new Set(rooms.map((room) => room.arena))];
     const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
@@ -1546,7 +1718,7 @@ function loop(now: number): void {
   titlePulse += dt;
   updateGamepads();
 
-  if (mode === "playing") {
+  if (isActionMode()) {
     updateGame(dt);
   } else {
     updateHeroSprite(dt);
@@ -1562,6 +1734,28 @@ function loop(now: number): void {
 function startGame(): void {
   mode = "playing";
   overlay.innerHTML = "";
+  clearMenuFocus();
+  removePlaygroundPortal();
+  resetPlayerForFreshRun();
+  clearActionEntities();
+  spawnRoom(0);
+  updateHud();
+}
+
+function startPlayground(): void {
+  mode = "playground";
+  overlay.innerHTML = "";
+  clearMenuFocus();
+  resetPlayerForFreshRun();
+  clearActionEntities();
+  setArena("batterGate");
+  roomName.textContent = "Practice Griddle";
+  roomSub.textContent = "Step onto the glowing waffle portal to begin the run.";
+  spawnPlaygroundPortal();
+  updateHud();
+}
+
+function resetPlayerForFreshRun(): void {
   player.pos.set(0, -3);
   player.vel.set(0, 0);
   player.hp = 110;
@@ -1606,14 +1800,73 @@ function startGame(): void {
   boonsOwned.clear();
   techniquesOwned.clear();
   heldActions.clear();
+}
+
+function clearActionEntities(): void {
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
   clearArray(particles, removeParticle);
   clearArray(combatTexts, removeCombatText);
   clearArray(traps, removeTrap);
   clearArray(powerups, removePowerup);
-  spawnRoom(0);
-  updateHud();
+}
+
+function spawnPlaygroundPortal(): void {
+  removePlaygroundPortal();
+
+  const pos = new THREE.Vector2(0, 4.25);
+  const ringMaterial = new THREE.SpriteMaterial({
+    map: textures.ring,
+    transparent: true,
+    depthTest: false,
+    color: "#82f7ff"
+  });
+  const waffleMaterial = new THREE.SpriteMaterial({
+    map: textures.waffle,
+    transparent: true,
+    depthTest: false,
+    color: "#fff3a4"
+  });
+  const ring = new THREE.Sprite(ringMaterial);
+  const waffle = new THREE.Sprite(waffleMaterial);
+  ring.position.set(pos.x, pos.y, 2.2);
+  waffle.position.set(pos.x, pos.y, 2.6);
+  ring.scale.setScalar(3.15);
+  waffle.scale.setScalar(1.62);
+  ring.renderOrder = 100;
+  waffle.renderOrder = 120;
+  fxGroup.add(ring, waffle);
+  playgroundPortal = { waffle, ring, pos, radius: 1.25, phase: 0 };
+}
+
+function updatePlaygroundPortal(dt: number): void {
+  if (!playgroundPortal) {
+    return;
+  }
+
+  playgroundPortal.phase += dt;
+  const pulse = 1 + Math.sin(playgroundPortal.phase * 4.5) * 0.08;
+  playgroundPortal.ring.scale.setScalar(3.15 * pulse);
+  playgroundPortal.waffle.scale.setScalar(1.62 + Math.sin(playgroundPortal.phase * 6) * 0.05);
+  playgroundPortal.ring.material.opacity = 0.62 + Math.sin(playgroundPortal.phase * 5) * 0.18;
+  playgroundPortal.ring.material.rotation += dt * 1.8;
+  playgroundPortal.waffle.material.rotation -= dt * 0.8;
+
+  if (player.pos.distanceTo(playgroundPortal.pos) <= playgroundPortal.radius + player.radius) {
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 1)), "RUN START", "#82f7ff");
+    startGame();
+  }
+}
+
+function removePlaygroundPortal(): void {
+  if (!playgroundPortal) {
+    return;
+  }
+
+  fxGroup.remove(playgroundPortal.ring, playgroundPortal.waffle);
+  playgroundPortal.ring.material.dispose();
+  playgroundPortal.waffle.material.dispose();
+  playgroundPortal = null;
 }
 
 function spawnRoom(index: number): void {
@@ -1665,6 +1918,11 @@ function updateGame(dt: number): void {
   updateCombatTexts(dt);
   updateCamera(dt);
   updateHud();
+
+  if (mode === "playground") {
+    updatePlaygroundPortal(dt);
+    return;
+  }
 
   if (player.hp <= 0 && mode === "playing") {
     loseGame();
@@ -1728,6 +1986,7 @@ function updateGamepads(): void {
     gamepadIndex = null;
     gamepadMove.set(0, 0);
     previousGamepadButtons.clear();
+    menuStickReady = true;
     if (activeInput === "gamepad") {
       activeInput = "pointer";
     }
@@ -1748,18 +2007,15 @@ function updateGamepads(): void {
   }
 
   gamepadMove.set(
-    applyStickDeadzone(gamepad.axes[0] ?? 0) + buttonAxis(pressed, 14, 15),
-    -applyStickDeadzone(gamepad.axes[1] ?? 0) + buttonAxis(pressed, 13, 12)
+    applyStickDeadzone(gamepad.axes[0] ?? 0),
+    -applyStickDeadzone(gamepad.axes[1] ?? 0)
   );
 
   if (gamepadMove.lengthSq() > 1) {
     gamepadMove.normalize();
   }
 
-  gamepadAim.set(
-    applyStickDeadzone(gamepad.axes[2] ?? 0),
-    -applyStickDeadzone(gamepad.axes[3] ?? 0)
-  );
+  gamepadAim.copy(gamepadMove);
   gamepadAimActive = gamepadAim.lengthSq() > 0.02;
 
   if (pressed.size > 0 || gamepadMove.lengthSq() > 0.02 || gamepadAimActive) {
@@ -1773,18 +2029,14 @@ function updateGamepads(): void {
   }
 
   const pressedOnce = (index: number) => pressed.has(index) && !previousGamepadButtons.has(index);
-  const anyPressedOnce = [...pressed].some((index) => !previousGamepadButtons.has(index));
 
-  if (mode === "title" || mode === "won" || mode === "lost") {
-    if (anyPressedOnce) {
-      startGame();
-    }
-
+  if (isMenuMode()) {
+    updateMenuGamepad(gamepad, pressed, pressedOnce);
     rememberGamepadButtons(pressed);
     return;
   }
 
-  if (mode !== "playing") {
+  if (!isActionMode()) {
     rememberGamepadButtons(pressed);
     return;
   }
@@ -1859,6 +2111,209 @@ function buttonAxis(pressed: Set<number>, negative: number, positive: number): n
   return (pressed.has(positive) ? 1 : 0) - (pressed.has(negative) ? 1 : 0);
 }
 
+function isActionMode(): boolean {
+  return mode === "playing" || mode === "playground";
+}
+
+function isMenuMode(): boolean {
+  return mode === "title" || mode === "boon" || mode === "won" || mode === "lost";
+}
+
+function refreshMenuFocus(preferredIndex = menuFocusIndex): void {
+  menuButtons = [...overlay.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+
+  if (menuButtons.length === 0) {
+    menuFocusIndex = 0;
+    return;
+  }
+
+  menuButtons.forEach((button, index) => {
+    button.onpointerenter = () => setMenuFocus(index);
+    button.onfocus = () => setMenuFocus(index);
+  });
+
+  setMenuFocus(preferredIndex);
+}
+
+function setMenuFocus(index: number): void {
+  if (menuButtons.length === 0) {
+    return;
+  }
+
+  menuFocusIndex = THREE.MathUtils.clamp(index, 0, menuButtons.length - 1);
+  syncMenuFocus();
+}
+
+function clearMenuFocus(): void {
+  for (const button of menuButtons) {
+    button.classList.remove("isMenuFocus");
+  }
+
+  menuButtons = [];
+  menuFocusIndex = 0;
+}
+
+function moveMenuFocusLinear(direction: number): void {
+  if (menuButtons.length === 0) {
+    refreshMenuFocus();
+  }
+
+  if (menuButtons.length === 0) {
+    return;
+  }
+
+  menuFocusIndex = (menuFocusIndex + direction + menuButtons.length) % menuButtons.length;
+  syncMenuFocus();
+}
+
+function moveMenuFocus2d(dx: number, dy: number): void {
+  if (menuButtons.length === 0) {
+    refreshMenuFocus();
+  }
+
+  const currentButton = menuButtons[menuFocusIndex];
+
+  if (!currentButton) {
+    return;
+  }
+
+  const currentRect = currentButton.getBoundingClientRect();
+  const currentCenter = rectCenter(currentRect);
+  let bestIndex = menuFocusIndex;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (let index = 0; index < menuButtons.length; index += 1) {
+    if (index === menuFocusIndex) {
+      continue;
+    }
+
+    const rect = menuButtons[index]!.getBoundingClientRect();
+    const center = rectCenter(rect);
+    const offsetX = center.x - currentCenter.x;
+    const offsetY = center.y - currentCenter.y;
+    const primary = dx !== 0 ? offsetX * dx : offsetY * dy;
+
+    if (primary <= 4) {
+      continue;
+    }
+
+    const perpendicular = dx !== 0 ? Math.abs(offsetY) : Math.abs(offsetX);
+    const score = primary + perpendicular * 4;
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  }
+
+  if (bestIndex !== menuFocusIndex) {
+    setMenuFocus(bestIndex);
+  }
+}
+
+function rectCenter(rect: DOMRect): { x: number; y: number } {
+  return {
+    x: rect.left + rect.width * 0.5,
+    y: rect.top + rect.height * 0.5
+  };
+}
+
+function syncMenuFocus(): void {
+  for (let index = 0; index < menuButtons.length; index += 1) {
+    menuButtons[index]!.classList.toggle("isMenuFocus", index === menuFocusIndex);
+  }
+
+  menuButtons[menuFocusIndex]?.focus({ preventScroll: true });
+}
+
+function activateMenuFocus(): void {
+  if (menuButtons.length === 0) {
+    refreshMenuFocus();
+  }
+
+  menuButtons[menuFocusIndex]?.click();
+}
+
+function handleMenuKey(code: string): boolean {
+  if (code === "ArrowRight") {
+    moveMenuFocus2d(1, 0);
+    return true;
+  }
+
+  if (code === "ArrowLeft") {
+    moveMenuFocus2d(-1, 0);
+    return true;
+  }
+
+  if (code === "ArrowDown") {
+    moveMenuFocus2d(0, 1);
+    return true;
+  }
+
+  if (code === "ArrowUp") {
+    moveMenuFocus2d(0, -1);
+    return true;
+  }
+
+  if (code === "Tab") {
+    moveMenuFocusLinear(1);
+    return true;
+  }
+
+  if (code === "Home") {
+    setMenuFocus(0);
+    return true;
+  }
+
+  if (code === "End") {
+    setMenuFocus(menuButtons.length - 1);
+    return true;
+  }
+
+  if (code === "Enter" || code === "Space") {
+    activateMenuFocus();
+    return true;
+  }
+
+  return false;
+}
+
+function updateMenuGamepad(gamepad: Gamepad, pressed: Set<number>, pressedOnce: (index: number) => boolean): void {
+  const horizontal = applyStickDeadzone(gamepad.axes[0] ?? 0) + buttonAxis(pressed, 14, 15);
+  const vertical = applyStickDeadzone(gamepad.axes[1] ?? 0) + buttonAxis(pressed, 12, 13);
+  const axisActive = Math.abs(horizontal) > 0.65 || Math.abs(vertical) > 0.65;
+
+  if (!axisActive) {
+    menuStickReady = true;
+  }
+
+  if (pressedOnce(15)) {
+    moveMenuFocus2d(1, 0);
+    menuStickReady = false;
+  } else if (pressedOnce(14)) {
+    moveMenuFocus2d(-1, 0);
+    menuStickReady = false;
+  } else if (pressedOnce(13)) {
+    moveMenuFocus2d(0, 1);
+    menuStickReady = false;
+  } else if (pressedOnce(12)) {
+    moveMenuFocus2d(0, -1);
+    menuStickReady = false;
+  } else if (menuStickReady && axisActive) {
+    if (Math.abs(horizontal) >= Math.abs(vertical)) {
+      moveMenuFocus2d(Math.sign(horizontal), 0);
+    } else {
+      moveMenuFocus2d(0, Math.sign(vertical));
+    }
+
+    menuStickReady = false;
+  }
+
+  if (pressedOnce(0) || pressedOnce(9)) {
+    activateMenuFocus();
+  }
+}
+
 function rememberGamepadButtons(pressed: Set<number>): void {
   previousGamepadButtons.clear();
 
@@ -1929,7 +2384,7 @@ function updatePlayer(dt: number): void {
 }
 
 function updateHeroSprite(dt: number): void {
-  const moving = player.vel.lengthSq() > 0.16 || mode !== "playing";
+  const moving = player.vel.lengthSq() > 0.16 || !isActionMode();
   player.frameTime += dt * (moving ? 9.5 : 3);
 
   if (Math.abs(lastAim.x) > Math.abs(lastAim.y)) {
@@ -2239,57 +2694,77 @@ function showTitle(): void {
         </div>
         <div class="controlColumn">
           <strong>Controller</strong>
-          <span>Left stick move, right stick aim</span>
+          <span>Left stick move and aim</span>
           <span>West attack, east dash</span>
           <span>South spell, north cycle spell</span>
+          <span>D-pad/stick menus, South or Start select</span>
         </div>
       </div>
       <div class="actions">
-        <button id="startButton">Begin Run</button>
+        <button id="startButton">Enter Playground</button>
       </div>
     </div>
   `;
-  document.getElementById("startButton")?.addEventListener("click", startGame);
+  document.getElementById("startButton")?.addEventListener("click", startPlayground);
+  refreshMenuFocus();
 }
 
 function showBoonChoices(choices = pickBoons(), techniqueChoices = pickTechniques(), techniqueLocked = false): void {
-  roomName.textContent = "Birthday Boon";
-  roomSub.textContent = `Level ${player.level} · ${player.focusPoints} focus · ${techniquesOwned.size}/${techniqueSlots} techniques`;
+  const nextRoom = rooms[player.room + 1]?.name ?? "Final Feast";
+  const techniqueStatus = techniqueLocked ? "Picked this level" : techniquesOwned.size >= techniqueSlots ? "Slots full" : "Optional pick";
+
+  roomName.textContent = "Run Planning";
+  roomSub.textContent = `Level ${player.level} · ${player.focusPoints} focus · next: ${nextRoom}`;
   overlay.innerHTML = `
-    <div class="panel modal">
-      <h2 class="title" style="font-size: clamp(28px, 5vw, 48px)">Waffle Blessing</h2>
-      <p class="tagline">The griddle glows with questionable generosity.</p>
+    <div class="panel modal levelMenu">
+      <h2 class="title levelTitle">Run Planning</h2>
+      <p class="levelIntro">Spend focus, lock in a technique, then choose a blessing to enter the next room.</p>
+      <div class="levelStats">
+        <span><strong>${player.focusPoints}</strong> focus available</span>
+        <span><strong>${techniquesOwned.size}/${techniqueSlots}</strong> technique slots</span>
+        <span><strong>${nextRoom}</strong> next room</span>
+      </div>
       <div class="techniquePanel">
         <div class="techniqueHeader">
-          <span>Techniques</span>
-          <span>${techniquesOwned.size}/${techniqueSlots} slots</span>
+          <span>Technique Slot</span>
+          <em>${techniqueStatus}</em>
         </div>
+        <div class="menuHint">Techniques shape the rest of the run and use limited slots.</div>
         <div class="techniqueGrid">
           ${techniqueChoices.map((technique, index) => renderTechniqueButton(technique, index, techniqueLocked)).join("")}
         </div>
       </div>
-      <div class="weaponUpgradePanel">
-        <div class="weaponUpgradeHeader">
-          <span>Weapon Training</span>
-          <span>${player.focusPoints} focus</span>
+      <div class="upgradeColumns">
+        <div class="weaponUpgradePanel">
+          <div class="weaponUpgradeHeader">
+            <span>Weapon Training</span>
+            <em>${player.focusPoints} focus</em>
+          </div>
+          <div class="menuHint">Weapon upgrades improve one attack style.</div>
+          <div class="weaponUpgradeGrid">
+            ${weaponbook.map((weapon, index) => renderWeaponUpgradeButton(weapon, index)).join("")}
+          </div>
         </div>
-        <div class="weaponUpgradeGrid">
-          ${weaponbook.map((weapon, index) => renderWeaponUpgradeButton(weapon, index)).join("")}
+        <div class="spellUpgradePanel">
+          <div class="spellUpgradeHeader">
+            <span>Spell Study</span>
+            <em>${player.focusPoints} focus</em>
+          </div>
+          <div class="menuHint">Spell upgrades improve the selected spell line.</div>
+          <div class="spellUpgradeGrid">
+            ${spellbook.map((spell, index) => renderSpellUpgradeButton(spell, index)).join("")}
+          </div>
         </div>
       </div>
-      <div class="spellUpgradePanel">
-        <div class="spellUpgradeHeader">
-          <span>Spell Upgrades</span>
-          <span>${player.focusPoints} focus</span>
-        </div>
-        <div class="spellUpgradeGrid">
-          ${spellbook.map((spell, index) => renderSpellUpgradeButton(spell, index)).join("")}
-        </div>
+      <div class="weaponUpgradeHeader">
+        <span>Birthday Blessing</span>
+        <em>Choose one to continue</em>
       </div>
       <div class="boonGrid">
         ${choices.map((boon, index) => `
           <button class="boonButton" data-boon="${index}">
             <strong>${boon.name}</strong>
+            <span class="buttonStatus">Continue with this blessing</span>
             <span>${boon.line}</span>
           </button>
         `).join("")}
@@ -2340,21 +2815,24 @@ function showBoonChoices(choices = pickBoons(), techniqueChoices = pickTechnique
       boonsOwned.add(boon.id);
       mode = "playing";
       overlay.innerHTML = "";
+      clearMenuFocus();
       player.hp = Math.min(player.maxHp, player.hp + 18);
       spawnRoom(player.room + 1);
     });
   });
+  refreshMenuFocus();
 }
 
 function renderTechniqueButton(technique: Technique, index: number, locked: boolean): string {
   const owned = techniquesOwned.has(technique.id);
   const capped = techniquesOwned.size >= techniqueSlots;
-  const state = owned ? "Chosen" : locked ? "Locked" : capped ? "Slots full" : "Pick";
+  const state = owned ? "Chosen for this run" : locked ? "Already picked this level" : capped ? "Technique slots full" : "Pick technique";
+  const className = `techniqueButton${owned ? " isChosen" : ""}`;
 
   return `
-    <button class="techniqueButton" data-technique="${index}" ${owned || capped || locked ? "disabled" : ""}>
+    <button class="${className}" data-technique="${index}" ${owned || capped || locked ? "disabled" : ""}>
       <strong>${technique.name}</strong>
-      <span>${state}</span>
+      <span class="buttonStatus">${state}</span>
       <span>${technique.line}</span>
     </button>
   `;
@@ -2367,13 +2845,14 @@ function renderSpellUpgradeButton(spell: SpellDef, index: number): string {
   const affordable = player.focusPoints >= cost;
   const disabled = capped || !affordable;
   const nextLevel = Math.min(maxSpellLevel, progress.level + 1);
-  const state = capped ? "Max" : `Lv ${progress.level} -> ${nextLevel}`;
-  const price = capped ? "Complete" : `${cost} focus`;
+  const state = capped ? "Max level" : affordable ? `Upgrade for ${cost} focus` : `Need ${cost} focus`;
+  const level = capped ? `Lv ${progress.level}/${maxSpellLevel}` : `Lv ${progress.level} -> ${nextLevel}`;
 
   return `
     <button class="spellUpgradeButton" data-spell-upgrade="${index}" ${disabled ? "disabled" : ""}>
       <strong>${spell.name}</strong>
-      <span>${state} · ${price}</span>
+      <span class="buttonStatus">${state}</span>
+      <span>${level}</span>
       <span>${spell.upgradeLine(progress.level)}</span>
     </button>
   `;
@@ -2386,14 +2865,15 @@ function renderWeaponUpgradeButton(weapon: WeaponDef, index: number): string {
   const affordable = player.focusPoints >= cost;
   const disabled = capped || !affordable;
   const nextLevel = Math.min(maxWeaponLevel, progress.level + 1);
-  const state = capped ? "Max" : `Lv ${progress.level} -> ${nextLevel}`;
-  const price = capped ? "Complete" : `${cost} focus`;
+  const state = capped ? "Max level" : affordable ? `Upgrade for ${cost} focus` : `Need ${cost} focus`;
+  const level = capped ? `Lv ${progress.level}/${maxWeaponLevel}` : `Lv ${progress.level} -> ${nextLevel}`;
 
   return `
     <button class="weaponUpgradeButton" data-weapon-upgrade="${index}" ${disabled ? "disabled" : ""}>
       <strong>${weapon.name}</strong>
+      <span class="buttonStatus">${state}</span>
       <span>${weapon.line}</span>
-      <span>${state} · ${price}</span>
+      <span>${level}</span>
       <span>${weapon.upgradeLine(progress.level)}</span>
     </button>
   `;
@@ -2408,7 +2888,8 @@ function winGame(): void {
       <div class="actions"><button id="restartButton">Run Again</button></div>
     </div>
   `;
-  document.getElementById("restartButton")?.addEventListener("click", startGame);
+  document.getElementById("restartButton")?.addEventListener("click", startPlayground);
+  refreshMenuFocus();
   roomName.textContent = "Victory Feast";
   roomSub.textContent = "The birthday table is defended.";
 }
@@ -2422,7 +2903,8 @@ function loseGame(): void {
       <div class="actions"><button id="retryButton">Try Again</button></div>
     </div>
   `;
-  document.getElementById("retryButton")?.addEventListener("click", startGame);
+  document.getElementById("retryButton")?.addEventListener("click", startPlayground);
+  refreshMenuFocus();
   roomName.textContent = "Run Over";
   roomSub.textContent = "The griddle waits for another attempt.";
 }
@@ -2565,7 +3047,7 @@ function updateSpellDeck(): void {
 }
 
 function strike(): void {
-  if (mode !== "playing" || player.attackCooldown > 0) {
+  if (!isActionMode() || player.attackCooldown > 0) {
     return;
   }
 
@@ -2679,7 +3161,7 @@ function weaponCooldown(id: WeaponId): number {
 }
 
 function dash(): void {
-  if (mode !== "playing" || player.dashCooldown > 0) {
+  if (!isActionMode() || player.dashCooldown > 0) {
     return;
   }
 
@@ -2763,7 +3245,7 @@ function selectWeapon(index: number, showFx = true): void {
 
   player.weaponIndex = index;
 
-  if (showFx && mode === "playing") {
+  if (showFx && isActionMode()) {
     spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.65)), activeWeapon().sigil, "#ffd166");
   }
 
@@ -2828,7 +3310,7 @@ function selectSpell(index: number, showFx = true): void {
 
   player.spellIndex = index;
 
-  if (showFx && mode === "playing") {
+  if (showFx && isActionMode()) {
     burst(player.pos, "#d7e7ff", 5);
   }
 
@@ -2849,7 +3331,7 @@ function spellDamage(amount: number): number {
 }
 
 function special(): void {
-  if (mode !== "playing" || player.specialCooldown > 0) {
+  if (!isActionMode() || player.specialCooldown > 0) {
     return;
   }
 
@@ -2958,7 +3440,7 @@ function castGriddleSlam(): void {
 }
 
 function dropTrap(): void {
-  if (mode !== "playing" || player.trapCooldown > 0) {
+  if (!isActionMode() || player.trapCooldown > 0) {
     return;
   }
 
@@ -3488,7 +3970,7 @@ function setupTouchControls(): void {
       navigator.vibrate?.(12);
 
       if (mode === "title") {
-        startGame();
+        startPlayground();
         return;
       }
 
