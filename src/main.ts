@@ -90,8 +90,16 @@ declare global {
         specialCooldown: number;
         trapCooldown: number;
         gamepadActive: boolean;
+        gamepadSupported: boolean;
+        gamepadCount: number;
+        gamepadIndex: number | null;
         gamepadName: string;
+        gamepadMapping: string;
+        gamepadButtons: number[];
+        gamepadAxes: number[];
         activeInput: InputMode;
+        secureContext: boolean;
+        protocol: string;
         touchButtons: string[];
       };
       roomSummary: () => {
@@ -948,6 +956,9 @@ const tmp2 = new THREE.Vector2();
 let gamepadActive = false;
 let gamepadAimActive = false;
 let gamepadName = "";
+let gamepadMapping = "";
+let gamepadIndex: number | null = null;
+let preferredGamepadIndex: number | null = null;
 let activeInput: InputMode = "pointer";
 
 const textureLoader = new THREE.TextureLoader();
@@ -1254,6 +1265,24 @@ showTitle();
 resize();
 
 window.addEventListener("resize", resize);
+window.addEventListener("gamepadconnected", (event) => {
+  preferredGamepadIndex = event.gamepad.index;
+  gamepadIndex = event.gamepad.index;
+  gamepadName = event.gamepad.id || "Controller";
+  gamepadMapping = event.gamepad.mapping;
+  activeInput = "gamepad";
+});
+window.addEventListener("gamepaddisconnected", (event) => {
+  if (preferredGamepadIndex === event.gamepad.index) {
+    preferredGamepadIndex = null;
+  }
+
+  if (gamepadIndex === event.gamepad.index) {
+    gamepadIndex = null;
+    gamepadName = "";
+    gamepadMapping = "";
+  }
+});
 window.addEventListener("keydown", (event) => {
   if (event.code === "Space" || event.code === "Tab") {
     event.preventDefault();
@@ -1425,6 +1454,7 @@ window.__waffleTest = {
     };
   },
   inputState() {
+    const gamepad = firstGamepad();
     return {
       mode,
       pos: { x: player.pos.x, y: player.pos.y },
@@ -1436,8 +1466,16 @@ window.__waffleTest = {
       specialCooldown: player.specialCooldown,
       trapCooldown: player.trapCooldown,
       gamepadActive,
+      gamepadSupported: typeof navigator.getGamepads === "function",
+      gamepadCount: readGamepads().length,
+      gamepadIndex: gamepad?.index ?? null,
       gamepadName,
+      gamepadMapping,
+      gamepadButtons: gamepad ? gamepad.buttons.map((button) => button.value) : [],
+      gamepadAxes: gamepad ? [...gamepad.axes] : [],
       activeInput,
+      secureContext: window.isSecureContext,
+      protocol: window.location.protocol,
       touchButtons: [...touch.querySelectorAll<HTMLButtonElement>("button[data-act]")].map((button) => button.textContent?.trim() ?? "")
     };
   },
@@ -1648,6 +1686,8 @@ function updateGamepads(): void {
     gamepadActive = false;
     gamepadAimActive = false;
     gamepadName = "";
+    gamepadMapping = "";
+    gamepadIndex = null;
     gamepadMove.set(0, 0);
     previousGamepadButtons.clear();
     if (activeInput === "gamepad") {
@@ -1658,6 +1698,9 @@ function updateGamepads(): void {
 
   gamepadActive = true;
   gamepadName = gamepad.id || "Controller";
+  gamepadMapping = gamepad.mapping;
+  gamepadIndex = gamepad.index;
+  preferredGamepadIndex = gamepad.index;
 
   const pressed = new Set<number>();
   for (let index = 0; index < gamepad.buttons.length; index += 1) {
@@ -1667,8 +1710,8 @@ function updateGamepads(): void {
   }
 
   gamepadMove.set(
-    applyStickDeadzone(gamepad.axes[0] ?? 0),
-    -applyStickDeadzone(gamepad.axes[1] ?? 0)
+    applyStickDeadzone(gamepad.axes[0] ?? 0) + buttonAxis(pressed, 14, 15),
+    -applyStickDeadzone(gamepad.axes[1] ?? 0) + buttonAxis(pressed, 13, 12)
   );
 
   if (gamepadMove.lengthSq() > 1) {
@@ -1692,9 +1735,10 @@ function updateGamepads(): void {
   }
 
   const pressedOnce = (index: number) => pressed.has(index) && !previousGamepadButtons.has(index);
+  const anyPressedOnce = [...pressed].some((index) => !previousGamepadButtons.has(index));
 
   if (mode === "title" || mode === "won" || mode === "lost") {
-    if (pressedOnce(0) || pressedOnce(9)) {
+    if (anyPressedOnce) {
       startGame();
     }
 
@@ -1743,11 +1787,18 @@ function updateGamepads(): void {
 }
 
 function firstGamepad(): Gamepad | null {
+  const gamepads = readGamepads();
+  const preferred = gamepads.find((gamepad) => gamepad.index === preferredGamepadIndex);
+
+  return preferred ?? gamepads[0] ?? null;
+}
+
+function readGamepads(): Gamepad[] {
   if (typeof navigator.getGamepads !== "function") {
-    return null;
+    return [];
   }
 
-  return [...navigator.getGamepads()].find((gamepad): gamepad is Gamepad => Boolean(gamepad?.connected)) ?? null;
+  return [...navigator.getGamepads()].filter((gamepad): gamepad is Gamepad => Boolean(gamepad && gamepad.connected !== false));
 }
 
 function gamepadButtonPressed(gamepad: Gamepad, index: number): boolean {
@@ -1764,6 +1815,10 @@ function applyStickDeadzone(value: number): number {
   }
 
   return Math.sign(value) * ((abs - deadzone) / (1 - deadzone));
+}
+
+function buttonAxis(pressed: Set<number>, negative: number, positive: number): number {
+  return (pressed.has(positive) ? 1 : 0) - (pressed.has(negative) ? 1 : 0);
 }
 
 function rememberGamepadButtons(pressed: Set<number>): void {

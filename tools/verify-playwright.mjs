@@ -84,7 +84,7 @@ for (const config of [
   await page.screenshot({ path: resolve(outDir, `${config.name}-title.png`), fullPage: true });
 
   if (config.gamepad) {
-    await setGamepad(page, { buttons: [0] });
+    await setGamepad(page, { buttons: [8] });
     await page.waitForTimeout(120);
     await setGamepad(page, {});
   } else {
@@ -369,6 +369,9 @@ for (const result of results) {
     !result.viewport.gamepad
     || (
       result.controlState.gamepadActive === true
+      && result.controlState.gamepadSupported === true
+      && result.controlState.gamepadCount >= 1
+      && result.controlState.gamepadIndex === 0
       && result.controlState.activeInput === "gamepad"
       && result.controlState.gamepadName.includes("Verifier")
       && result.controllerExercise

@@ -31,6 +31,8 @@ Standard gamepads are supported:
 - Right bumper or D-pad up/down: cycle weapons
 - Start / Options: start or restart from title and end screens
 
+When testing from a local `file://` URL, focus the game tab and press any controller button once. Some browsers only expose a connected gamepad to the page after that first press. If your browser still reports no gamepads, use `npm run dev` and open `http://127.0.0.1:5173`.
+
 ## Local Development
 
 ```bash
