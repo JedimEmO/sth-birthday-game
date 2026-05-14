@@ -95,6 +95,17 @@ for (const config of [
     const after = window.__waffleTest.spellState();
     return { before, upgraded, after };
   });
+  const weaponUpgrade = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    const before = window.__waffleTest.weaponState();
+    window.__waffleTest.grantWeaponPoint();
+    const upgraded = window.__waffleTest.upgradeWeapon(1);
+    const after = window.__waffleTest.weaponState();
+    return { before, upgraded, after };
+  });
   const roomSamples = [];
 
   for (let index = 0; index < roomSummary.roomCount; index += 1) {
@@ -114,6 +125,10 @@ for (const config of [
   });
   await page.waitForTimeout(350);
   const powerupPixels = await sampleCanvas(page);
+  const pickupText = await page.evaluate(() => {
+    window.__waffleTest?.previewPickup("heal");
+    return window.__waffleTest?.combatTextLabels() ?? [];
+  });
 
   const spellSamples = [];
   for (let index = 0; index < roomSummary.spellIds.length; index += 1) {
@@ -135,9 +150,11 @@ for (const config of [
     playingPixels,
     spellUi,
     spellUpgrade,
+    weaponUpgrade,
     roomSummary,
     roomSamples,
     powerupPixels,
+    pickupText,
     spellSamples,
     errors,
     changedSamples: Math.abs(playingPixels.hash - titlePixels.hash)
@@ -157,6 +174,7 @@ for (const result of results) {
   const changedOk = result.changedSamples > 1000;
   const requiredEnemyKinds = ["burger", "shade", "mage", "golem", "griddleBoss", "candleBoss", "burgerBoss"];
   const requiredSpellIds = ["waffle", "syrupNova", "candleSpiral", "griddleSlam"];
+  const requiredWeaponIds = ["spatula", "fork", "rollingPin"];
   const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
   const spellUiOk =
     result.spellUi.visible
@@ -168,13 +186,20 @@ for (const result of results) {
     result.spellUpgrade.upgraded === true
     && result.spellUpgrade.after.levels.syrupNova === result.spellUpgrade.before.levels.syrupNova + 1
     && result.spellUpgrade.after.points < result.spellUpgrade.before.points + 1;
+  const weaponUpgradeOk =
+    result.weaponUpgrade.upgraded === true
+    && result.weaponUpgrade.after.levels.fork === result.weaponUpgrade.before.levels.fork + 1
+    && result.weaponUpgrade.after.points < result.weaponUpgrade.before.points + 1;
+  const pickupTextOk = result.pickupText.some((label) => label.includes("HEAL"));
   const summaryOk =
     result.roomSummary.roomCount >= 8
     && result.roomSummary.bossRoomCount >= 3
     && result.roomSummary.arenaIds.length >= 5
     && result.roomSummary.spellMaxLevel >= 4
+    && result.roomSummary.weaponMaxLevel >= 4
     && requiredEnemyKinds.every((kind) => result.roomSummary.enemyKinds.includes(kind))
     && requiredSpellIds.every((id) => result.roomSummary.spellIds.includes(id))
+    && requiredWeaponIds.every((id) => result.roomSummary.weaponIds.includes(id))
     && requiredPowerupKinds.every((kind) => result.roomSummary.powerupKinds.includes(kind));
   const roomSamplesOk =
     result.roomSamples.length === result.roomSummary.roomCount
@@ -185,7 +210,7 @@ for (const result of results) {
     && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
     && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !spellUpgradeOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !spellUpgradeOk || !weaponUpgradeOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }

@@ -2,7 +2,7 @@
 
 Play it here: https://jedimemo.github.io/sth-birthday-game/
 
-Sindre's Waffle Adventure is a small browser action RPG about defending the birthday waffles from burger shades, syrup mages, candle liches, and oversized kitchen bosses. Fight through themed arenas, collect healing and powerup orbs, choose birthday boons between rooms, and upgrade a four-spell loadout as the run escalates.
+Sindre's Waffle Adventure is a small browser action RPG about defending the birthday waffles from burger shades, syrup mages, candle liches, and oversized kitchen bosses. Fight through themed arenas, collect readable healing and powerup orbs, choose birthday boons between rooms, and upgrade spells plus weapon styles as the run escalates.
 
 ## Controls
 
@@ -12,9 +12,10 @@ Sindre's Waffle Adventure is a small browser action RPG about defending the birt
 - Cast active spell: `Q`, `K`, or right mouse
 - Drop waffle trap: `E` or `L`
 - Cycle spells: `R` or `Tab`
+- Cycle weapons: `T`
 - Select spell directly: `1` through `4`
 
-Touch controls are available on mobile, including a spell button for cycling the active spell.
+Touch controls are available on mobile, including buttons for cycling the active spell and weapon.
 
 ## Local Development
 

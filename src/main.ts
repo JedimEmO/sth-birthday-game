@@ -24,6 +24,7 @@ type ArenaId = "batterGate" | "griddleFoundry" | "syrupCanal" | "candleCrypt" | 
 type EnemyKind = "burger" | "shade" | "mage" | "golem" | "griddleBoss" | "candleBoss" | "burgerBoss";
 type PowerupKind = "heal" | "syrup" | "haste" | "might";
 type SpellId = "waffle" | "syrupNova" | "candleSpiral" | "griddleSlam";
+type WeaponId = "spatula" | "fork" | "rollingPin";
 type Team = "player" | "enemy";
 type BoonId =
   | "batter"
@@ -40,14 +41,23 @@ declare global {
     __waffleTest?: {
       previewRoom: (index: number) => void;
       previewPowerups: () => void;
+      previewPickup: (kind: PowerupKind) => void;
       previewSpell: (index: number) => void;
       cycleSpell: () => void;
       grantSpellPoint: () => void;
       upgradeSpell: (index: number) => boolean;
+      grantWeaponPoint: () => void;
+      upgradeWeapon: (index: number) => boolean;
+      combatTextLabels: () => string[];
       spellState: () => {
         activeIndex: number;
         points: number;
         levels: Record<SpellId, number>;
+      };
+      weaponState: () => {
+        activeIndex: number;
+        points: number;
+        levels: Record<WeaponId, number>;
       };
       roomSummary: () => {
         roomCount: number;
@@ -56,6 +66,8 @@ declare global {
         enemyKinds: EnemyKind[];
         spellIds: SpellId[];
         spellMaxLevel: number;
+        weaponIds: WeaponId[];
+        weaponMaxLevel: number;
         powerupKinds: PowerupKind[];
         roomNames: string[];
       };
@@ -117,6 +129,14 @@ interface Particle {
   endScale: number;
 }
 
+interface CombatText {
+  element: HTMLDivElement;
+  pos: V2;
+  vel: V2;
+  life: number;
+  maxLife: number;
+}
+
 interface Trap {
   sprite: THREE.Sprite;
   pos: V2;
@@ -145,6 +165,18 @@ interface SpellDef {
 }
 
 interface SpellProgress {
+  level: number;
+}
+
+interface WeaponDef {
+  id: WeaponId;
+  name: string;
+  sigil: string;
+  line: string;
+  upgradeLine: (level: number) => string;
+}
+
+interface WeaponProgress {
   level: number;
 }
 
@@ -277,6 +309,25 @@ const css = `
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  #combatLayer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .floatText {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    font-size: 15px;
+    font-weight: 900;
+    color: #ffffff;
+    text-shadow: 0 2px 0 rgba(0, 0, 0, 0.66), 0 0 10px rgba(0, 0, 0, 0.42);
+    white-space: nowrap;
+    will-change: transform, opacity;
   }
 
   .spellDeck {
@@ -455,7 +506,13 @@ const css = `
     text-align: left;
   }
 
-  .spellUpgradeHeader {
+  .weaponUpgradePanel {
+    margin-top: 16px;
+    text-align: left;
+  }
+
+  .spellUpgradeHeader,
+  .weaponUpgradeHeader {
     display: flex;
     justify-content: space-between;
     gap: 12px;
@@ -465,14 +522,20 @@ const css = `
     font-weight: 800;
   }
 
-  .spellUpgradeGrid {
+  .spellUpgradeGrid,
+  .weaponUpgradeGrid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 8px;
     margin-top: 9px;
   }
 
-  .spellUpgradeButton {
+  .weaponUpgradeGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .spellUpgradeButton,
+  .weaponUpgradeButton {
     min-height: 112px;
     padding: 11px;
     background: #1c2430;
@@ -482,24 +545,29 @@ const css = `
     text-align: left;
   }
 
-  .spellUpgradeButton:disabled {
+  .spellUpgradeButton:disabled,
+  .weaponUpgradeButton:disabled {
     opacity: 0.46;
     cursor: default;
     transform: none;
   }
 
   .spellUpgradeButton strong,
-  .spellUpgradeButton span {
+  .spellUpgradeButton span,
+  .weaponUpgradeButton strong,
+  .weaponUpgradeButton span {
     display: block;
   }
 
-  .spellUpgradeButton strong {
+  .spellUpgradeButton strong,
+  .weaponUpgradeButton strong {
     color: #82f7ff;
     font-size: 14px;
     line-height: 1.1;
   }
 
-  .spellUpgradeButton span {
+  .spellUpgradeButton span,
+  .weaponUpgradeButton span {
     margin-top: 7px;
     color: #d7e7ff;
     font-size: 12px;
@@ -642,6 +710,10 @@ const css = `
       grid-template-columns: 1fr;
     }
 
+    .weaponUpgradeGrid {
+      grid-template-columns: 1fr;
+    }
+
     .modal {
       max-height: calc(100vh - 28px);
       overflow: auto;
@@ -669,12 +741,13 @@ hud.innerHTML = `
       <div id="roomSub" class="roomSub">Birthday underworld loading...</div>
     </div>
     <div class="cooldowns">
-      <div class="panel chip"><b id="attackChip">Ready</b>Strike</div>
+      <div class="panel chip"><b id="attackChip">Ready</b><span id="weaponLabel">Spatula</span></div>
       <div class="panel chip"><b id="dashChip">Ready</b>Dash</div>
       <div class="panel chip"><b id="specialChip">Ready</b><span id="specialLabel">Waffle</span></div>
     </div>
   </div>
   <div id="spellDeck" class="panel spellDeck isHidden"></div>
+  <div id="combatLayer"></div>
 `;
 document.body.append(hud);
 
@@ -692,6 +765,7 @@ touch.innerHTML = `
     <button data-act="special">Special</button>
     <button data-act="trap">Trap</button>
     <button data-act="cycle">Spell</button>
+    <button data-act="weapon">Weapon</button>
   </div>
 `;
 document.body.append(touch);
@@ -702,10 +776,12 @@ const scoreText = mustElement<HTMLSpanElement>("scoreText");
 const roomName = mustElement<HTMLDivElement>("roomName");
 const roomSub = mustElement<HTMLDivElement>("roomSub");
 const attackChip = mustElement<HTMLSpanElement>("attackChip");
+const weaponLabel = mustElement<HTMLSpanElement>("weaponLabel");
 const dashChip = mustElement<HTMLSpanElement>("dashChip");
 const specialChip = mustElement<HTMLSpanElement>("specialChip");
 const specialLabel = mustElement<HTMLSpanElement>("specialLabel");
 const spellDeck = mustElement<HTMLDivElement>("spellDeck");
+const combatLayer = mustElement<HTMLDivElement>("combatLayer");
 const stick = mustElement<HTMLDivElement>("stick");
 const knob = mustElement<HTMLDivElement>("knob");
 
@@ -905,13 +981,16 @@ const player = {
   trapPower: 1,
   syrupPower: 1,
   spellIndex: 0,
+  weaponIndex: 0,
   level: 1,
   spellPoints: 0,
+  weaponPoints: 0,
   hasteTimer: 0,
   mightTimer: 0
 };
 
 const maxSpellLevel = 4;
+const maxWeaponLevel = 4;
 
 const powerupKinds: PowerupKind[] = ["heal", "syrup", "haste", "might"];
 const powerupColors: Record<PowerupKind, string> = {
@@ -963,6 +1042,35 @@ const spellProgress: Record<SpellId, SpellProgress> = {
 };
 let spellDeckSignature = "";
 
+const weaponbook: WeaponDef[] = [
+  {
+    id: "spatula",
+    name: "Birthday Spatula",
+    sigil: "SP",
+    line: "Wide, reliable arc",
+    upgradeLine: (level) => `+${12 + level * 4}% arc damage`
+  },
+  {
+    id: "fork",
+    name: "Syrup Fork",
+    sigil: "FK",
+    line: "Long precise thrust",
+    upgradeLine: (level) => `+${10 + level * 5}% thrust reach`
+  },
+  {
+    id: "rollingPin",
+    name: "Rolling Pin",
+    sigil: "RP",
+    line: "Short stun shockwave",
+    upgradeLine: (level) => `+${8 + level * 4}% slam radius`
+  }
+];
+const weaponProgress: Record<WeaponId, WeaponProgress> = {
+  spatula: { level: 1 },
+  fork: { level: 1 },
+  rollingPin: { level: 1 }
+};
+
 let mode: Mode = "title";
 let enemyId = 0;
 let waveClearTimer = 0;
@@ -972,6 +1080,7 @@ let titlePulse = 0;
 const enemies: Enemy[] = [];
 const projectiles: Projectile[] = [];
 const particles: Particle[] = [];
+const combatTexts: CombatText[] = [];
 const traps: Trap[] = [];
 const powerups: Powerup[] = [];
 const boonsOwned = new Set<BoonId>();
@@ -1007,6 +1116,8 @@ window.addEventListener("keydown", (event) => {
     strike();
   } else if (event.code === "KeyR" || event.code === "Tab") {
     cycleSpellSelection(1);
+  } else if (event.code === "KeyT") {
+    cycleWeaponSelection(1);
   } else if (event.code.startsWith("Digit")) {
     selectSpell(Number(event.code.replace("Digit", "")) - 1);
   }
@@ -1084,6 +1195,13 @@ window.__waffleTest = {
 
     updateHud();
   },
+  previewPickup(kind: PowerupKind): void {
+    mode = "playing";
+    overlay.innerHTML = "";
+    player.pos.set(0, -3);
+    applyPowerup(kind);
+    updateHud();
+  },
   previewSpell(index: number): void {
     mode = "playing";
     overlay.innerHTML = "";
@@ -1103,11 +1221,28 @@ window.__waffleTest = {
   upgradeSpell(index: number): boolean {
     return upgradeSpellAt(index);
   },
+  grantWeaponPoint(): void {
+    player.weaponPoints += 1;
+    updateHud();
+  },
+  upgradeWeapon(index: number): boolean {
+    return upgradeWeaponAt(index);
+  },
+  combatTextLabels(): string[] {
+    return [...combatLayer.querySelectorAll(".floatText")].map((element) => element.textContent ?? "");
+  },
   spellState() {
     return {
       activeIndex: player.spellIndex,
       points: player.spellPoints,
       levels: spellLevels()
+    };
+  },
+  weaponState() {
+    return {
+      activeIndex: player.weaponIndex,
+      points: player.weaponPoints,
+      levels: weaponLevels()
     };
   },
   roomSummary() {
@@ -1120,6 +1255,8 @@ window.__waffleTest = {
       enemyKinds,
       spellIds: spellbook.map((spell) => spell.id),
       spellMaxLevel: maxSpellLevel,
+      weaponIds: weaponbook.map((weapon) => weapon.id),
+      weaponMaxLevel: maxWeaponLevel,
       powerupKinds: [...powerupKinds],
       roomNames: rooms.map((room) => room.name)
     };
@@ -1139,6 +1276,7 @@ function loop(now: number): void {
   } else {
     updateHeroSprite(dt);
     updateParticles(dt);
+    updateCombatTexts(dt);
     updateCamera(dt);
   }
 
@@ -1174,15 +1312,19 @@ function startGame(): void {
   player.trapPower = 1;
   player.syrupPower = 1;
   player.spellIndex = 0;
+  player.weaponIndex = 0;
   player.level = 1;
   player.spellPoints = 0;
+  player.weaponPoints = 0;
   player.hasteTimer = 0;
   player.mightTimer = 0;
   resetSpellProgress();
+  resetWeaponProgress();
   boonsOwned.clear();
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
   clearArray(particles, removeParticle);
+  clearArray(combatTexts, removeCombatText);
   clearArray(traps, removeTrap);
   clearArray(powerups, removePowerup);
   spawnRoom(0);
@@ -1194,6 +1336,7 @@ function spawnRoom(index: number): void {
   clearArray(projectiles, removeProjectile);
   clearArray(traps, removeTrap);
   clearArray(powerups, removePowerup);
+  clearArray(combatTexts, removeCombatText);
   player.room = index;
   waveClearTimer = 0;
 
@@ -1233,6 +1376,7 @@ function updateGame(dt: number): void {
   updateTraps(dt);
   updatePowerups(dt);
   updateParticles(dt);
+  updateCombatTexts(dt);
   updateCamera(dt);
   updateHud();
 
@@ -1557,6 +1701,22 @@ function updateParticles(dt: number): void {
   }
 }
 
+function updateCombatTexts(dt: number): void {
+  for (const text of [...combatTexts]) {
+    text.life -= dt;
+    text.pos.addScaledVector(text.vel, dt);
+    text.vel.multiplyScalar(0.94);
+    const t = 1 - text.life / text.maxLife;
+    const screen = worldToScreen(text.pos);
+    text.element.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -50%) scale(${1 + t * 0.16})`;
+    text.element.style.opacity = `${Math.max(0, 1 - t)}`;
+
+    if (text.life <= 0) {
+      removeCombatText(text);
+    }
+  }
+}
+
 function updateCamera(dt: number): void {
   const targetX = mode === "title" ? 0 : player.pos.x * 0.22;
   const targetY = mode === "title" ? 0 : player.pos.y * 0.22;
@@ -1573,7 +1733,9 @@ function finishRoom(): void {
   player.roomsCleared += 1;
   player.level += 1;
   player.spellPoints += 1;
+  player.weaponPoints += 1;
   player.score += 75 + player.roomsCleared * 25;
+  spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 1.1)), `LEVEL ${player.level}`, "#82f7ff");
 
   if (player.room >= rooms.length - 1) {
     winGame();
@@ -1602,11 +1764,20 @@ function showTitle(): void {
 
 function showBoonChoices(choices = pickBoons()): void {
   roomName.textContent = "Birthday Boon";
-  roomSub.textContent = `Level ${player.level} · ${player.spellPoints} spell ${player.spellPoints === 1 ? "point" : "points"}`;
+  roomSub.textContent = `Level ${player.level} · ${player.spellPoints} spell ${player.spellPoints === 1 ? "point" : "points"} · ${player.weaponPoints} weapon ${player.weaponPoints === 1 ? "point" : "points"}`;
   overlay.innerHTML = `
     <div class="panel modal">
       <h2 class="title" style="font-size: clamp(28px, 5vw, 48px)">Waffle Blessing</h2>
       <p class="tagline">The griddle glows with questionable generosity.</p>
+      <div class="weaponUpgradePanel">
+        <div class="weaponUpgradeHeader">
+          <span>Weapon Training</span>
+          <span>${player.weaponPoints} ${player.weaponPoints === 1 ? "point" : "points"}</span>
+        </div>
+        <div class="weaponUpgradeGrid">
+          ${weaponbook.map((weapon, index) => renderWeaponUpgradeButton(weapon, index)).join("")}
+        </div>
+      </div>
       <div class="spellUpgradePanel">
         <div class="spellUpgradeHeader">
           <span>Spell Upgrades</span>
@@ -1626,6 +1797,16 @@ function showBoonChoices(choices = pickBoons()): void {
       </div>
     </div>
   `;
+
+  overlay.querySelectorAll<HTMLButtonElement>("[data-weapon-upgrade]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.weaponUpgrade ?? 0);
+
+      if (upgradeWeaponAt(index)) {
+        showBoonChoices(choices);
+      }
+    });
+  });
 
   overlay.querySelectorAll<HTMLButtonElement>("[data-spell-upgrade]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1671,6 +1852,26 @@ function renderSpellUpgradeButton(spell: SpellDef, index: number): string {
       <strong>${spell.name}</strong>
       <span>${state} · ${price}</span>
       <span>${spell.upgradeLine(progress.level)}</span>
+    </button>
+  `;
+}
+
+function renderWeaponUpgradeButton(weapon: WeaponDef, index: number): string {
+  const progress = weaponProgress[weapon.id];
+  const cost = weaponUpgradeCost(weapon.id);
+  const capped = progress.level >= maxWeaponLevel;
+  const affordable = player.weaponPoints >= cost;
+  const disabled = capped || !affordable;
+  const nextLevel = Math.min(maxWeaponLevel, progress.level + 1);
+  const state = capped ? "Max" : `Lv ${progress.level} -> ${nextLevel}`;
+  const price = capped ? "Complete" : `${cost} ${cost === 1 ? "point" : "points"}`;
+
+  return `
+    <button class="weaponUpgradeButton" data-weapon-upgrade="${index}" ${disabled ? "disabled" : ""}>
+      <strong>${weapon.name}</strong>
+      <span>${weapon.line}</span>
+      <span>${state} · ${price}</span>
+      <span>${weapon.upgradeLine(progress.level)}</span>
     </button>
   `;
 }
@@ -1768,8 +1969,9 @@ function updateHud(): void {
   const hpPercent = Math.max(0, player.hp / player.maxHp);
   hpFill.style.width = `${Math.round(hpPercent * 100)}%`;
   hpText.textContent = `${Math.ceil(Math.max(0, player.hp))} / ${player.maxHp}`;
-  scoreText.textContent = `Lv ${player.level} · ${player.score} syrup${player.spellPoints > 0 ? ` · ${player.spellPoints} SP` : ""}`;
+  scoreText.textContent = `Lv ${player.level} · ${player.score} syrup${player.spellPoints > 0 ? ` · ${player.spellPoints} SP` : ""}${player.weaponPoints > 0 ? ` · ${player.weaponPoints} WP` : ""}`;
   attackChip.textContent = player.attackCooldown <= 0 ? "Ready" : player.attackCooldown.toFixed(1);
+  weaponLabel.textContent = activeWeapon().name;
   dashChip.textContent = player.dashCooldown <= 0 ? "Ready" : player.dashCooldown.toFixed(1);
   specialChip.textContent = player.specialCooldown <= 0 ? "Ready" : player.specialCooldown.toFixed(1);
   specialLabel.textContent = activeSpell().name;
@@ -1821,33 +2023,39 @@ function strike(): void {
     return;
   }
 
-  player.attackCooldown = player.attackRate;
   const aim = aimDirection();
   lastAim.copy(aim);
-  const origin = player.pos.clone().addScaledVector(aim, 0.25);
-  spawnSlash(origin, aim, 1);
-  const strikeDamage = player.damage * (player.mightTimer > 0 ? 1.35 : 1);
+  const weapon = activeWeapon();
+  player.attackCooldown = weaponCooldown(weapon.id);
 
+  if (weapon.id === "fork") {
+    strikeFork(aim);
+  } else if (weapon.id === "rollingPin") {
+    strikeRollingPin(aim);
+  } else {
+    strikeSpatula(aim);
+  }
+}
+
+function strikeSpatula(aim: V2): void {
+  const level = weaponLevel("spatula");
+  const origin = player.pos.clone().addScaledVector(aim, 0.25);
+  spawnSlash(origin, aim, 1 + level * 0.03);
+  const damage = strikeDamage(1 + level * 0.16);
+  const range = player.attackRange + level * 0.14;
   let hit = false;
 
   for (const enemy of [...enemies]) {
     const delta = tmp.copy(enemy.pos).sub(player.pos);
-    const dist = delta.length();
 
-    if (dist > player.attackRange + enemy.radius) {
-      continue;
-    }
-
-    const angle = delta.normalize().dot(aim);
-
-    if (angle > 0.42) {
+    if (delta.length() <= range + enemy.radius && delta.normalize().dot(aim) > 0.42) {
       hit = true;
-      damageEnemy(enemy, strikeDamage, aim.clone().multiplyScalar(4.6));
+      damageEnemy(enemy, damage, aim.clone().multiplyScalar(4.6));
 
       if (player.echoStrike) {
         window.setTimeout(() => {
           if (mode === "playing" && enemies.includes(enemy)) {
-            damageEnemy(enemy, strikeDamage * 0.38, aim.clone().multiplyScalar(2));
+            damageEnemy(enemy, damage * 0.38, aim.clone().multiplyScalar(2));
             spawnSlash(enemy.pos.clone(), aim, 0.58);
           }
         }, 90);
@@ -1858,6 +2066,70 @@ function strike(): void {
   if (hit) {
     shake = Math.max(shake, 0.18);
   }
+}
+
+function strikeFork(aim: V2): void {
+  const level = weaponLevel("fork");
+  const origin = player.pos.clone().addScaledVector(aim, 0.55);
+  spawnSlash(origin, aim, 0.62);
+  const damage = strikeDamage(1.16 + level * 0.17);
+  const range = 2.85 + level * 0.24;
+  let hit = false;
+
+  for (const enemy of [...enemies]) {
+    const delta = tmp.copy(enemy.pos).sub(player.pos);
+
+    if (delta.length() <= range + enemy.radius && delta.normalize().dot(aim) > 0.74) {
+      hit = true;
+      damageEnemy(enemy, damage, aim.clone().multiplyScalar(6.2));
+    }
+  }
+
+  if (hit) {
+    shake = Math.max(shake, 0.16);
+  }
+}
+
+function strikeRollingPin(aim: V2): void {
+  const level = weaponLevel("rollingPin");
+  const radius = 1.45 + level * 0.18;
+  spawnShockwave(player.pos, "#d7e7ff", 0.58 + level * 0.08);
+  spawnSlash(player.pos.clone(), aim, 0.72);
+  const damage = strikeDamage(0.62 + level * 0.12);
+  let hit = false;
+
+  for (const enemy of [...enemies]) {
+    const delta = tmp.copy(enemy.pos).sub(player.pos);
+    const dist = delta.length();
+
+    if (dist <= radius + enemy.radius) {
+      hit = true;
+      damageEnemy(enemy, damage, delta.normalize().multiplyScalar(3.3 + level * 0.45));
+      enemy.stun = Math.max(enemy.stun, 0.16 + level * 0.035);
+    }
+  }
+
+  if (hit) {
+    shake = Math.max(shake, 0.24);
+  }
+}
+
+function strikeDamage(multiplier: number): number {
+  return player.damage * (player.mightTimer > 0 ? 1.35 : 1) * multiplier;
+}
+
+function weaponCooldown(id: WeaponId): number {
+  const level = weaponLevel(id);
+
+  if (id === "fork") {
+    return Math.max(0.26, 0.46 - level * 0.025);
+  }
+
+  if (id === "rollingPin") {
+    return Math.max(0.34, 0.58 - level * 0.03);
+  }
+
+  return Math.max(0.24, player.attackRate - level * 0.015);
 }
 
 function dash(): void {
@@ -1884,6 +2156,71 @@ function dash(): void {
 
 function activeSpell(): SpellDef {
   return spellbook[player.spellIndex % spellbook.length] ?? spellbook[0]!;
+}
+
+function activeWeapon(): WeaponDef {
+  return weaponbook[player.weaponIndex % weaponbook.length] ?? weaponbook[0]!;
+}
+
+function weaponLevel(id: WeaponId): number {
+  return weaponProgress[id].level;
+}
+
+function weaponLevels(): Record<WeaponId, number> {
+  return {
+    spatula: weaponProgress.spatula.level,
+    fork: weaponProgress.fork.level,
+    rollingPin: weaponProgress.rollingPin.level
+  };
+}
+
+function resetWeaponProgress(): void {
+  for (const weapon of weaponbook) {
+    weaponProgress[weapon.id].level = 1;
+  }
+}
+
+function weaponUpgradeCost(id: WeaponId): number {
+  return weaponProgress[id].level;
+}
+
+function canUpgradeWeapon(id: WeaponId): boolean {
+  return weaponProgress[id].level < maxWeaponLevel && player.weaponPoints >= weaponUpgradeCost(id);
+}
+
+function upgradeWeaponAt(index: number): boolean {
+  const weapon = weaponbook[index];
+
+  if (!weapon || !canUpgradeWeapon(weapon.id)) {
+    return false;
+  }
+
+  const cost = weaponUpgradeCost(weapon.id);
+  player.weaponPoints -= cost;
+  weaponProgress[weapon.id].level += 1;
+  player.weaponIndex = index;
+  spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.9)), `${weapon.sigil} LV ${weaponProgress[weapon.id].level}`, "#82f7ff");
+  updateHud();
+  return true;
+}
+
+function selectWeapon(index: number, showFx = true): void {
+  if (!Number.isFinite(index) || index < 0 || index >= weaponbook.length) {
+    return;
+  }
+
+  player.weaponIndex = index;
+
+  if (showFx && mode === "playing") {
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.65)), activeWeapon().sigil, "#ffd166");
+  }
+
+  updateHud();
+}
+
+function cycleWeaponSelection(direction: number): void {
+  const next = (player.weaponIndex + direction + weaponbook.length) % weaponbook.length;
+  selectWeapon(next);
 }
 
 function spellLevel(id: SpellId): number {
@@ -2094,10 +2431,13 @@ function damageEnemy(enemy: Enemy, amount: number, knockback: V2): void {
   enemy.vel.add(knockback);
   enemy.stun = Math.max(enemy.stun, enemy.boss ? 0.08 : 0.16);
   enemy.sprite.scale.multiplyScalar(1.04);
+  spawnCombatText(enemy.pos.clone().add(new THREE.Vector2(randomRange(-0.25, 0.25), 0.6)), `${Math.ceil(amount)}`, enemy.boss ? "#ffb86b" : "#fff2a8");
   burst(enemy.pos, enemy.boss ? "#ff7d66" : "#ffd166", enemy.boss ? 10 : 6);
 
   if (enemy.hp <= 0) {
-    player.score += enemyStats[enemy.kind].score;
+    const score = enemyStats[enemy.kind].score;
+    player.score += score;
+    spawnCombatText(enemy.pos.clone().add(new THREE.Vector2(0, 1)), `+${score} syrup`, "#ffd166");
     burst(enemy.pos, "#fff2a8", enemy.boss ? 34 : 16);
     maybeDropPowerup(enemy);
     removeEnemy(enemy);
@@ -2161,16 +2501,21 @@ function spawnPowerup(kind: PowerupKind, pos: V2): void {
 
 function applyPowerup(kind: PowerupKind): void {
   if (kind === "heal") {
+    const before = player.hp;
     player.hp = Math.min(player.maxHp, player.hp + 32);
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.9)), `HEAL +${Math.ceil(player.hp - before)}`, powerupColors[kind]);
   } else if (kind === "syrup") {
     player.specialCooldown = Math.max(0, player.specialCooldown - 0.85);
     player.score += 25;
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.9)), "SPELL CHARGE", powerupColors[kind]);
   } else if (kind === "haste") {
     player.hasteTimer = Math.max(player.hasteTimer, 6.2);
     player.dashCooldown = Math.max(0, player.dashCooldown - 0.25);
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.9)), "HASTE", powerupColors[kind]);
   } else if (kind === "might") {
     player.mightTimer = Math.max(player.mightTimer, 6.8);
     player.attackCooldown = Math.max(0, player.attackCooldown - 0.18);
+    spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.9)), "MIGHT", powerupColors[kind]);
   }
 
   updateHud();
@@ -2182,6 +2527,7 @@ function damagePlayer(amount: number): void {
   }
 
   player.hp -= amount;
+  spawnCombatText(player.pos.clone().add(new THREE.Vector2(0, 0.78)), `-${Math.ceil(amount)}`, "#ff8aa0");
   player.invulnerable = 0.62;
   shake = Math.max(shake, 0.32);
   burst(player.pos, "#ff6f8f", 12);
@@ -2404,6 +2750,21 @@ function spawnShockwave(pos: V2, color: string, scale: number): void {
   spawnParticle(pos.clone(), new THREE.Vector2(), 0.34, scale, scale * 2.4, color, textures.ring);
 }
 
+function spawnCombatText(pos: V2, text: string, color: string): void {
+  const element = document.createElement("div");
+  element.className = "floatText";
+  element.textContent = text;
+  element.style.color = color;
+  combatLayer.append(element);
+  combatTexts.push({
+    element,
+    pos,
+    vel: new THREE.Vector2(randomRange(-0.18, 0.18), randomRange(0.85, 1.18)),
+    life: 0.9,
+    maxLife: 0.9
+  });
+}
+
 function spawnParticle(
   pos: V2,
   vel: V2,
@@ -2493,6 +2854,18 @@ function updatePointer(clientX: number, clientY: number): void {
   pointerWorld.set(camera.position.x + nx * width * 0.5, camera.position.y - ny * height * 0.5);
 }
 
+function worldToScreen(pos: V2): { x: number; y: number } {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const left = camera.position.x + camera.left;
+  const bottom = camera.position.y + camera.bottom;
+  const width = camera.right - camera.left;
+  const height = camera.top - camera.bottom;
+  return {
+    x: rect.left + ((pos.x - left) / width) * rect.width,
+    y: rect.top + (1 - (pos.y - bottom) / height) * rect.height
+  };
+}
+
 const touchMove = new THREE.Vector2();
 let activeStick: number | null = null;
 
@@ -2541,6 +2914,8 @@ function setupTouchControls(): void {
         dropTrap();
       } else if (act === "cycle") {
         cycleSpellSelection(1);
+      } else if (act === "weapon") {
+        cycleWeaponSelection(1);
       }
     });
   });
@@ -2611,6 +2986,16 @@ function removeParticle(particle: Particle): void {
 
   fxGroup.remove(particle.sprite);
   particle.sprite.material.dispose();
+}
+
+function removeCombatText(text: CombatText): void {
+  const index = combatTexts.indexOf(text);
+
+  if (index >= 0) {
+    combatTexts.splice(index, 1);
+  }
+
+  text.element.remove();
 }
 
 function removeTrap(trap: Trap): void {
