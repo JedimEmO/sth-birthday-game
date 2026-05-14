@@ -22,6 +22,8 @@ if (!app) {
 type Mode = "title" | "playing" | "boon" | "won" | "lost";
 type ArenaId = "batterGate" | "griddleFoundry" | "syrupCanal" | "candleCrypt" | "burgerBasilica";
 type EnemyKind = "burger" | "shade" | "mage" | "golem" | "griddleBoss" | "candleBoss" | "burgerBoss";
+type PowerupKind = "heal" | "syrup" | "haste" | "might";
+type SpellId = "waffle" | "syrupNova" | "candleSpiral" | "griddleSlam";
 type Team = "player" | "enemy";
 type BoonId =
   | "batter"
@@ -37,11 +39,15 @@ declare global {
   interface Window {
     __waffleTest?: {
       previewRoom: (index: number) => void;
+      previewPowerups: () => void;
+      cycleSpell: () => void;
       roomSummary: () => {
         roomCount: number;
         bossRoomCount: number;
         arenaIds: ArenaId[];
         enemyKinds: EnemyKind[];
+        spellIds: SpellId[];
+        powerupKinds: PowerupKind[];
         roomNames: string[];
       };
     };
@@ -87,6 +93,8 @@ interface Projectile {
   maxLife: number;
   pierce: number;
   spin: number;
+  trailColor: string;
+  trailTimer: number;
   hitIds: Set<number>;
 }
 
@@ -106,6 +114,23 @@ interface Trap {
   radius: number;
   life: number;
   tick: number;
+}
+
+interface Powerup {
+  sprite: THREE.Sprite;
+  kind: PowerupKind;
+  pos: V2;
+  vel: V2;
+  radius: number;
+  life: number;
+  phase: number;
+}
+
+interface SpellDef {
+  id: SpellId;
+  name: string;
+  cooldown: number;
+  cast: () => void;
 }
 
 interface RoomPlan {
@@ -744,6 +769,8 @@ window.__waffleTest = {
     spawnRoom(THREE.MathUtils.clamp(Math.floor(index), 0, rooms.length - 1));
     updateHud();
   },
+  previewPowerups(): void {},
+  cycleSpell(): void {},
   roomSummary() {
     const arenaIds = [...new Set(rooms.map((room) => room.arena))];
     const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
@@ -752,6 +779,8 @@ window.__waffleTest = {
       bossRoomCount: rooms.filter((room) => room.enemies.some(isBossKind)).length,
       arenaIds,
       enemyKinds,
+      spellIds: ["waffle", "syrupNova", "candleSpiral", "griddleSlam"],
+      powerupKinds: ["heal", "syrup", "haste", "might"],
       roomNames: rooms.map((room) => room.name)
     };
   }
@@ -1591,6 +1620,8 @@ function createProjectile(options: {
     maxLife: options.life,
     pierce: options.pierce,
     spin: options.spin,
+    trailColor: "",
+    trailTimer: 0,
     hitIds: new Set()
   };
   projectiles.push(projectile);
