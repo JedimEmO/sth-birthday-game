@@ -42,12 +42,20 @@ declare global {
       previewPowerups: () => void;
       previewSpell: (index: number) => void;
       cycleSpell: () => void;
+      grantSpellPoint: () => void;
+      upgradeSpell: (index: number) => boolean;
+      spellState: () => {
+        activeIndex: number;
+        points: number;
+        levels: Record<SpellId, number>;
+      };
       roomSummary: () => {
         roomCount: number;
         bossRoomCount: number;
         arenaIds: ArenaId[];
         enemyKinds: EnemyKind[];
         spellIds: SpellId[];
+        spellMaxLevel: number;
         powerupKinds: PowerupKind[];
         roomNames: string[];
       };
@@ -130,8 +138,14 @@ interface Powerup {
 interface SpellDef {
   id: SpellId;
   name: string;
+  sigil: string;
   cooldown: number;
   cast: () => void;
+  upgradeLine: (level: number) => string;
+}
+
+interface SpellProgress {
+  level: number;
 }
 
 interface RoomPlan {
@@ -265,6 +279,89 @@ const css = `
     white-space: nowrap;
   }
 
+  .spellDeck {
+    position: absolute;
+    top: max(82px, calc(env(safe-area-inset-top) + 82px));
+    right: max(14px, env(safe-area-inset-right));
+    width: min(560px, calc(100vw - 28px));
+    padding: 8px;
+    border-radius: 8px;
+    pointer-events: auto;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .spellDeck.isHidden {
+    display: none;
+  }
+
+  .spellSlot {
+    min-width: 0;
+    min-height: 64px;
+    padding: 8px 9px;
+    border: 1px solid rgba(255, 219, 112, 0.2);
+    border-radius: 7px;
+    background: rgba(24, 22, 31, 0.84);
+    color: #f9eab8;
+    box-shadow: none;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .spellSlot.isActive {
+    border-color: rgba(255, 209, 102, 0.86);
+    background: rgba(54, 38, 34, 0.9);
+  }
+
+  .spellSlot.canUpgrade {
+    border-color: rgba(130, 247, 255, 0.76);
+  }
+
+  .spellSlot b,
+  .spellSlot strong,
+  .spellSlot span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .spellSlot b {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: rgba(255, 209, 102, 0.18);
+    color: #ffffff;
+    font-size: 11px;
+  }
+
+  .spellSlot strong {
+    display: inline;
+    font-size: 12px;
+    line-height: 1.1;
+    color: #ffffff;
+  }
+
+  .spellSlot span {
+    display: block;
+    margin-top: 7px;
+    font-size: 11px;
+    color: #d7e7ff;
+  }
+
+  .spellSlot em {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: var(--ready, 100%);
+    background: #ffd166;
+    opacity: 0.78;
+  }
+
   #centerOverlay {
     position: fixed;
     inset: 0;
@@ -353,6 +450,62 @@ const css = `
     line-height: 1.35;
   }
 
+  .spellUpgradePanel {
+    margin-top: 18px;
+    text-align: left;
+  }
+
+  .spellUpgradeHeader {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    color: #fff7d1;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .spellUpgradeGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 9px;
+  }
+
+  .spellUpgradeButton {
+    min-height: 112px;
+    padding: 11px;
+    background: #1c2430;
+    color: #fff7d1;
+    border: 1px solid rgba(130, 247, 255, 0.38);
+    box-shadow: 0 4px 0 #315a62, 0 12px 20px rgba(0, 0, 0, 0.2);
+    text-align: left;
+  }
+
+  .spellUpgradeButton:disabled {
+    opacity: 0.46;
+    cursor: default;
+    transform: none;
+  }
+
+  .spellUpgradeButton strong,
+  .spellUpgradeButton span {
+    display: block;
+  }
+
+  .spellUpgradeButton strong {
+    color: #82f7ff;
+    font-size: 14px;
+    line-height: 1.1;
+  }
+
+  .spellUpgradeButton span {
+    margin-top: 7px;
+    color: #d7e7ff;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
   #touchControls {
     position: fixed;
     inset: auto 0 max(18px, env(safe-area-inset-bottom)) 0;
@@ -427,12 +580,24 @@ const css = `
       grid-template-columns: repeat(3, 1fr);
     }
 
+    .spellDeck {
+      top: max(184px, calc(env(safe-area-inset-top) + 184px));
+      left: max(10px, env(safe-area-inset-left));
+      right: max(10px, env(safe-area-inset-right));
+      width: auto;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .chip {
       min-width: 0;
       padding: 7px;
     }
 
     .boonGrid {
+      grid-template-columns: 1fr;
+    }
+
+    .spellUpgradeGrid {
       grid-template-columns: 1fr;
     }
 
@@ -468,6 +633,7 @@ hud.innerHTML = `
       <div class="panel chip"><b id="specialChip">Ready</b><span id="specialLabel">Waffle</span></div>
     </div>
   </div>
+  <div id="spellDeck" class="panel spellDeck isHidden"></div>
 `;
 document.body.append(hud);
 
@@ -498,6 +664,7 @@ const attackChip = mustElement<HTMLSpanElement>("attackChip");
 const dashChip = mustElement<HTMLSpanElement>("dashChip");
 const specialChip = mustElement<HTMLSpanElement>("specialChip");
 const specialLabel = mustElement<HTMLSpanElement>("specialLabel");
+const spellDeck = mustElement<HTMLDivElement>("spellDeck");
 const stick = mustElement<HTMLDivElement>("stick");
 const knob = mustElement<HTMLDivElement>("knob");
 
@@ -697,9 +864,13 @@ const player = {
   trapPower: 1,
   syrupPower: 1,
   spellIndex: 0,
+  level: 1,
+  spellPoints: 0,
   hasteTimer: 0,
   mightTimer: 0
 };
+
+const maxSpellLevel = 4;
 
 const powerupKinds: PowerupKind[] = ["heal", "syrup", "haste", "might"];
 const powerupColors: Record<PowerupKind, string> = {
@@ -710,11 +881,46 @@ const powerupColors: Record<PowerupKind, string> = {
 };
 
 const spellbook: SpellDef[] = [
-  { id: "waffle", name: "Waffle Bolt", cooldown: 1.65, cast: castWaffleBolt },
-  { id: "syrupNova", name: "Syrup Nova", cooldown: 2.15, cast: castSyrupNova },
-  { id: "candleSpiral", name: "Candle Spiral", cooldown: 1.95, cast: castCandleSpiral },
-  { id: "griddleSlam", name: "Griddle Slam", cooldown: 2.45, cast: castGriddleSlam }
+  {
+    id: "waffle",
+    name: "Waffle Bolt",
+    sigil: "WB",
+    cooldown: 1.65,
+    cast: castWaffleBolt,
+    upgradeLine: (level) => `+${8 + level * 3} damage, deeper pierce`
+  },
+  {
+    id: "syrupNova",
+    name: "Syrup Nova",
+    sigil: "SN",
+    cooldown: 2.15,
+    cast: castSyrupNova,
+    upgradeLine: (level) => `+${2 + level} bolts, wider burst`
+  },
+  {
+    id: "candleSpiral",
+    name: "Candle Spiral",
+    sigil: "CS",
+    cooldown: 2.35,
+    cast: castCandleSpiral,
+    upgradeLine: (level) => level >= 3 ? "Max level pierces once" : "+1 flame, modest burn"
+  },
+  {
+    id: "griddleSlam",
+    name: "Griddle Slam",
+    sigil: "GS",
+    cooldown: 2.45,
+    cast: castGriddleSlam,
+    upgradeLine: (level) => `+${10 + level * 5}% radius and force`
+  }
 ];
+const spellProgress: Record<SpellId, SpellProgress> = {
+  waffle: { level: 1 },
+  syrupNova: { level: 1 },
+  candleSpiral: { level: 1 },
+  griddleSlam: { level: 1 }
+};
+let spellDeckSignature = "";
 
 let mode: Mode = "title";
 let enemyId = 0;
@@ -798,6 +1004,23 @@ renderer.domElement.addEventListener("contextmenu", (event) => {
 
 setupTouchControls();
 
+spellDeck.addEventListener("pointerdown", (event) => {
+  const target = event.target;
+
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const button = target.closest<HTMLButtonElement>("[data-spell-index]");
+
+  if (!button) {
+    return;
+  }
+
+  event.preventDefault();
+  selectSpell(Number(button.dataset.spellIndex ?? 0));
+});
+
 window.__waffleTest = {
   previewRoom(index: number): void {
     mode = "playing";
@@ -832,6 +1055,20 @@ window.__waffleTest = {
   cycleSpell(): void {
     cycleSpellSelection(1);
   },
+  grantSpellPoint(): void {
+    player.spellPoints += 1;
+    updateHud();
+  },
+  upgradeSpell(index: number): boolean {
+    return upgradeSpellAt(index);
+  },
+  spellState() {
+    return {
+      activeIndex: player.spellIndex,
+      points: player.spellPoints,
+      levels: spellLevels()
+    };
+  },
   roomSummary() {
     const arenaIds = [...new Set(rooms.map((room) => room.arena))];
     const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
@@ -841,6 +1078,7 @@ window.__waffleTest = {
       arenaIds,
       enemyKinds,
       spellIds: spellbook.map((spell) => spell.id),
+      spellMaxLevel: maxSpellLevel,
       powerupKinds: [...powerupKinds],
       roomNames: rooms.map((room) => room.name)
     };
@@ -895,8 +1133,11 @@ function startGame(): void {
   player.trapPower = 1;
   player.syrupPower = 1;
   player.spellIndex = 0;
+  player.level = 1;
+  player.spellPoints = 0;
   player.hasteTimer = 0;
   player.mightTimer = 0;
+  resetSpellProgress();
   boonsOwned.clear();
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
@@ -1289,6 +1530,8 @@ function updateCamera(dt: number): void {
 
 function finishRoom(): void {
   player.roomsCleared += 1;
+  player.level += 1;
+  player.spellPoints += 1;
   player.score += 75 + player.roomsCleared * 25;
 
   if (player.room >= rooms.length - 1) {
@@ -1316,14 +1559,22 @@ function showTitle(): void {
   document.getElementById("startButton")?.addEventListener("click", startGame);
 }
 
-function showBoonChoices(): void {
-  const choices = pickBoons();
+function showBoonChoices(choices = pickBoons()): void {
   roomName.textContent = "Birthday Boon";
-  roomSub.textContent = "Choose one gift before the next room.";
+  roomSub.textContent = `Level ${player.level} · ${player.spellPoints} spell ${player.spellPoints === 1 ? "point" : "points"}`;
   overlay.innerHTML = `
     <div class="panel modal">
       <h2 class="title" style="font-size: clamp(28px, 5vw, 48px)">Waffle Blessing</h2>
       <p class="tagline">The griddle glows with questionable generosity.</p>
+      <div class="spellUpgradePanel">
+        <div class="spellUpgradeHeader">
+          <span>Spell Upgrades</span>
+          <span>${player.spellPoints} ${player.spellPoints === 1 ? "point" : "points"}</span>
+        </div>
+        <div class="spellUpgradeGrid">
+          ${spellbook.map((spell, index) => renderSpellUpgradeButton(spell, index)).join("")}
+        </div>
+      </div>
       <div class="boonGrid">
         ${choices.map((boon, index) => `
           <button class="boonButton" data-boon="${index}">
@@ -1334,6 +1585,16 @@ function showBoonChoices(): void {
       </div>
     </div>
   `;
+
+  overlay.querySelectorAll<HTMLButtonElement>("[data-spell-upgrade]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.spellUpgrade ?? 0);
+
+      if (upgradeSpellAt(index)) {
+        showBoonChoices(choices);
+      }
+    });
+  });
 
   overlay.querySelectorAll<HTMLButtonElement>("[data-boon]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1352,6 +1613,25 @@ function showBoonChoices(): void {
       spawnRoom(player.room + 1);
     });
   });
+}
+
+function renderSpellUpgradeButton(spell: SpellDef, index: number): string {
+  const progress = spellProgress[spell.id];
+  const cost = spellUpgradeCost(spell.id);
+  const capped = progress.level >= maxSpellLevel;
+  const affordable = player.spellPoints >= cost;
+  const disabled = capped || !affordable;
+  const nextLevel = Math.min(maxSpellLevel, progress.level + 1);
+  const state = capped ? "Max" : `Lv ${progress.level} -> ${nextLevel}`;
+  const price = capped ? "Complete" : `${cost} ${cost === 1 ? "point" : "points"}`;
+
+  return `
+    <button class="spellUpgradeButton" data-spell-upgrade="${index}" ${disabled ? "disabled" : ""}>
+      <strong>${spell.name}</strong>
+      <span>${state} · ${price}</span>
+      <span>${spell.upgradeLine(progress.level)}</span>
+    </button>
+  `;
 }
 
 function winGame(): void {
@@ -1447,11 +1727,52 @@ function updateHud(): void {
   const hpPercent = Math.max(0, player.hp / player.maxHp);
   hpFill.style.width = `${Math.round(hpPercent * 100)}%`;
   hpText.textContent = `${Math.ceil(Math.max(0, player.hp))} / ${player.maxHp}`;
-  scoreText.textContent = `${player.score} syrup`;
+  scoreText.textContent = `Lv ${player.level} · ${player.score} syrup${player.spellPoints > 0 ? ` · ${player.spellPoints} SP` : ""}`;
   attackChip.textContent = player.attackCooldown <= 0 ? "Ready" : player.attackCooldown.toFixed(1);
   dashChip.textContent = player.dashCooldown <= 0 ? "Ready" : player.dashCooldown.toFixed(1);
   specialChip.textContent = player.specialCooldown <= 0 ? "Ready" : player.specialCooldown.toFixed(1);
   specialLabel.textContent = activeSpell().name;
+  updateSpellDeck();
+}
+
+function updateSpellDeck(): void {
+  const hidden = mode === "title" || mode === "won" || mode === "lost";
+  spellDeck.classList.toggle("isHidden", hidden);
+
+  if (hidden) {
+    return;
+  }
+
+  const cooldownReady = player.specialCooldown <= 0;
+  const signature = [
+    player.spellIndex,
+    player.spellPoints,
+    cooldownReady ? "ready" : player.specialCooldown.toFixed(1),
+    ...spellbook.map((spell) => spellProgress[spell.id].level)
+  ].join("|");
+
+  if (signature === spellDeckSignature) {
+    return;
+  }
+
+  spellDeckSignature = signature;
+  spellDeck.innerHTML = spellbook.map((spell, index) => {
+    const active = index === player.spellIndex;
+    const progress = spellProgress[spell.id];
+    const canUpgrade = canUpgradeSpell(spell.id);
+    const cooldownFill = active && !cooldownReady
+      ? `${THREE.MathUtils.clamp(1 - player.specialCooldown / spellCooldown(spell), 0, 1) * 100}%`
+      : "100%";
+    const state = active && !cooldownReady ? player.specialCooldown.toFixed(1) : `Lv ${progress.level}`;
+
+    return `
+      <button class="spellSlot ${active ? "isActive" : ""} ${canUpgrade ? "canUpgrade" : ""}" data-spell-index="${index}" style="--ready: ${cooldownFill}">
+        <b>${index + 1}</b><strong>${spell.sigil}</strong>
+        <span>${spell.name} · ${state}</span>
+        <em></em>
+      </button>
+    `;
+  }).join("");
 }
 
 function strike(): void {
@@ -1524,6 +1845,52 @@ function activeSpell(): SpellDef {
   return spellbook[player.spellIndex % spellbook.length] ?? spellbook[0]!;
 }
 
+function spellLevel(id: SpellId): number {
+  return spellProgress[id].level;
+}
+
+function spellLevels(): Record<SpellId, number> {
+  return {
+    waffle: spellProgress.waffle.level,
+    syrupNova: spellProgress.syrupNova.level,
+    candleSpiral: spellProgress.candleSpiral.level,
+    griddleSlam: spellProgress.griddleSlam.level
+  };
+}
+
+function resetSpellProgress(): void {
+  for (const spell of spellbook) {
+    spellProgress[spell.id].level = 1;
+  }
+
+  spellDeckSignature = "";
+}
+
+function spellUpgradeCost(id: SpellId): number {
+  return spellProgress[id].level;
+}
+
+function canUpgradeSpell(id: SpellId): boolean {
+  return spellProgress[id].level < maxSpellLevel && player.spellPoints >= spellUpgradeCost(id);
+}
+
+function upgradeSpellAt(index: number): boolean {
+  const spell = spellbook[index];
+
+  if (!spell || !canUpgradeSpell(spell.id)) {
+    return false;
+  }
+
+  const cost = spellUpgradeCost(spell.id);
+  player.spellPoints -= cost;
+  spellProgress[spell.id].level += 1;
+  player.spellIndex = index;
+  spellDeckSignature = "";
+  burst(player.pos, "#82f7ff", 12);
+  updateHud();
+  return true;
+}
+
 function selectSpell(index: number, showFx = true): void {
   if (!Number.isFinite(index) || index < 0 || index >= spellbook.length) {
     return;
@@ -1559,6 +1926,7 @@ function special(): void {
 }
 
 function castWaffleBolt(): void {
+  const level = spellLevel("waffle");
   const dir = aimDirection();
   lastAim.copy(dir);
   createProjectile({
@@ -1566,11 +1934,11 @@ function castWaffleBolt(): void {
     pos: player.pos.clone().addScaledVector(dir, 0.7),
     vel: dir.multiplyScalar(9.8),
     radius: 0.48,
-    scale: 0.82,
-    damage: 30 * player.syrupPower,
+    scale: 0.82 + level * 0.04,
+    damage: (28 + level * 8) * player.syrupPower,
     team: "player",
     life: 1.65,
-    pierce: Math.floor(1 + player.syrupPower),
+    pierce: Math.floor(1 + player.syrupPower + level * 0.45),
     spin: 9,
     color: "#fff3a4",
     trailColor: "#ffd166"
@@ -1579,7 +1947,8 @@ function castWaffleBolt(): void {
 }
 
 function castSyrupNova(): void {
-  const count = 12;
+  const level = spellLevel("syrupNova");
+  const count = 9 + level * 3;
 
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * Math.PI * 2 + titlePulse * 0.35;
@@ -1589,11 +1958,11 @@ function castSyrupNova(): void {
       pos: player.pos.clone().addScaledVector(dir, 0.55),
       vel: dir.multiplyScalar(6.8),
       radius: 0.32,
-      scale: 0.5,
-      damage: 17 * player.syrupPower,
+      scale: 0.48 + level * 0.03,
+      damage: (14 + level * 4) * player.syrupPower,
       team: "player",
-      life: 1.35,
-      pierce: 0,
+      life: 1.2 + level * 0.12,
+      pierce: level >= 3 ? 1 : 0,
       spin: 7,
       color: "#ff9a5f",
       trailColor: "#ffcf70"
@@ -1606,24 +1975,27 @@ function castSyrupNova(): void {
 }
 
 function castCandleSpiral(): void {
+  const level = spellLevel("candleSpiral");
   const aim = aimDirection();
   lastAim.copy(aim);
   const base = Math.atan2(aim.y, aim.x);
+  const count = 4 + level;
+  const middle = (count - 1) / 2;
 
-  for (let i = 0; i < 7; i += 1) {
-    const spread = (i - 3) * 0.18;
+  for (let i = 0; i < count; i += 1) {
+    const spread = (i - middle) * 0.19;
     const angle = base + spread;
     const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
     createProjectile({
       texture: textures.flame,
       pos: player.pos.clone().addScaledVector(dir, 0.65),
-      vel: dir.multiplyScalar(7.4 + i * 0.22),
+      vel: dir.multiplyScalar(6.6 + i * 0.12),
       radius: 0.36,
-      scale: 0.58,
-      damage: 21 * player.syrupPower,
+      scale: 0.48 + level * 0.03,
+      damage: (10 + level * 3) * player.syrupPower,
       team: "player",
-      life: 1.75,
-      pierce: 1,
+      life: 1.1 + level * 0.12,
+      pierce: level >= 4 ? 1 : 0,
       spin: i % 2 === 0 ? 6 : -6,
       color: i % 2 === 0 ? "#9be7ff" : "#ffd166",
       trailColor: i % 2 === 0 ? "#8bdcff" : "#ffe08a"
@@ -1634,9 +2006,10 @@ function castCandleSpiral(): void {
 }
 
 function castGriddleSlam(): void {
-  const radius = 3.25 + player.syrupPower * 0.25;
-  spawnShockwave(player.pos, "#ff8066", 1.45);
-  burst(player.pos, "#ffb86b", 24);
+  const level = spellLevel("griddleSlam");
+  const radius = 2.95 + level * 0.42 + player.syrupPower * 0.25;
+  spawnShockwave(player.pos, "#ff8066", 1.2 + level * 0.18);
+  burst(player.pos, "#ffb86b", 18 + level * 6);
   shake = Math.max(shake, 0.42);
 
   for (const enemy of [...enemies]) {
@@ -1645,7 +2018,7 @@ function castGriddleSlam(): void {
 
     if (dist <= radius + enemy.radius) {
       const falloff = THREE.MathUtils.clamp(1 - dist / (radius + enemy.radius), 0.35, 1);
-      damageEnemy(enemy, 34 * player.syrupPower * falloff, delta.divideScalar(dist).multiplyScalar(6.2));
+      damageEnemy(enemy, (26 + level * 10) * player.syrupPower * falloff, delta.divideScalar(dist).multiplyScalar(4.8 + level * 0.7));
     }
   }
 }

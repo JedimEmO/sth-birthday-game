@@ -63,12 +63,34 @@ for (const config of [
   await page.waitForTimeout(800);
   const playingPixels = await sampleCanvas(page);
   await page.screenshot({ path: resolve(outDir, `${config.name}-playing.png`), fullPage: true });
+  const spellUi = await page.evaluate(() => {
+    const deck = document.querySelector("#spellDeck");
+    const slots = [...document.querySelectorAll("#spellDeck [data-spell-index]")];
+
+    return {
+      visible: deck instanceof HTMLElement && getComputedStyle(deck).display !== "none",
+      slotCount: slots.length,
+      activeCount: slots.filter((slot) => slot.classList.contains("isActive")).length,
+      labels: slots.map((slot) => slot.textContent?.replace(/\s+/g, " ").trim() ?? "")
+    };
+  });
   const roomSummary = await page.evaluate(() => {
     if (!window.__waffleTest) {
       throw new Error("Missing __waffleTest hook");
     }
 
     return window.__waffleTest.roomSummary();
+  });
+  const spellUpgrade = await page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    const before = window.__waffleTest.spellState();
+    window.__waffleTest.grantSpellPoint();
+    const upgraded = window.__waffleTest.upgradeSpell(1);
+    const after = window.__waffleTest.spellState();
+    return { before, upgraded, after };
   });
   const roomSamples = [];
 
@@ -108,6 +130,8 @@ for (const config of [
     viewport: config,
     titlePixels,
     playingPixels,
+    spellUi,
+    spellUpgrade,
     roomSummary,
     roomSamples,
     powerupPixels,
@@ -131,10 +155,20 @@ for (const result of results) {
   const requiredEnemyKinds = ["burger", "shade", "mage", "golem", "griddleBoss", "candleBoss", "burgerBoss"];
   const requiredSpellIds = ["waffle", "syrupNova", "candleSpiral", "griddleSlam"];
   const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
+  const spellUiOk =
+    result.spellUi.visible
+    && result.spellUi.slotCount >= requiredSpellIds.length
+    && result.spellUi.activeCount === 1
+    && ["Waffle Bolt", "Syrup Nova", "Candle Spiral", "Griddle Slam"].every((name) => result.spellUi.labels.some((label) => label.includes(name)));
+  const spellUpgradeOk =
+    result.spellUpgrade.upgraded === true
+    && result.spellUpgrade.after.levels.syrupNova === result.spellUpgrade.before.levels.syrupNova + 1
+    && result.spellUpgrade.after.points < result.spellUpgrade.before.points + 1;
   const summaryOk =
     result.roomSummary.roomCount >= 8
     && result.roomSummary.bossRoomCount >= 3
     && result.roomSummary.arenaIds.length >= 5
+    && result.roomSummary.spellMaxLevel >= 4
     && requiredEnemyKinds.every((kind) => result.roomSummary.enemyKinds.includes(kind))
     && requiredSpellIds.every((id) => result.roomSummary.spellIds.includes(id))
     && requiredPowerupKinds.every((kind) => result.roomSummary.powerupKinds.includes(kind));
@@ -147,7 +181,7 @@ for (const result of results) {
     && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
     && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !spellUpgradeOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }
