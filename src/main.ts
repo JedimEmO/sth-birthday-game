@@ -40,6 +40,7 @@ declare global {
     __waffleTest?: {
       previewRoom: (index: number) => void;
       previewPowerups: () => void;
+      previewSpell: (index: number) => void;
       cycleSpell: () => void;
       roomSummary: () => {
         roomCount: number;
@@ -255,6 +256,15 @@ const css = `
     color: #ffffff;
   }
 
+  .chip span {
+    display: block;
+    max-width: 92px;
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   #centerOverlay {
     position: fixed;
     inset: 0;
@@ -455,7 +465,7 @@ hud.innerHTML = `
     <div class="cooldowns">
       <div class="panel chip"><b id="attackChip">Ready</b>Strike</div>
       <div class="panel chip"><b id="dashChip">Ready</b>Dash</div>
-      <div class="panel chip"><b id="specialChip">Ready</b>Special</div>
+      <div class="panel chip"><b id="specialChip">Ready</b><span id="specialLabel">Waffle</span></div>
     </div>
   </div>
 `;
@@ -474,6 +484,7 @@ touch.innerHTML = `
     <button data-act="dash">Dash</button>
     <button data-act="special">Special</button>
     <button data-act="trap">Trap</button>
+    <button data-act="cycle">Spell</button>
   </div>
 `;
 document.body.append(touch);
@@ -486,6 +497,7 @@ const roomSub = mustElement<HTMLDivElement>("roomSub");
 const attackChip = mustElement<HTMLSpanElement>("attackChip");
 const dashChip = mustElement<HTMLSpanElement>("dashChip");
 const specialChip = mustElement<HTMLSpanElement>("specialChip");
+const specialLabel = mustElement<HTMLSpanElement>("specialLabel");
 const stick = mustElement<HTMLDivElement>("stick");
 const knob = mustElement<HTMLDivElement>("knob");
 
@@ -622,7 +634,11 @@ const textures = {
   slash: makeSlashTexture(),
   syrup: makeSyrupTexture(),
   spark: makeSparkTexture(),
-  trap: makeTrapTexture()
+  trap: makeTrapTexture(),
+  orb: makeOrbTexture(),
+  ring: makeRingTexture(),
+  star: makeStarTexture(),
+  flame: makeFlameTexture()
 };
 
 const enemySheets: Record<EnemyKind, SpriteSheetDef> = {
@@ -679,8 +695,26 @@ const player = {
   facingRow: 0,
   echoStrike: false,
   trapPower: 1,
-  syrupPower: 1
+  syrupPower: 1,
+  spellIndex: 0,
+  hasteTimer: 0,
+  mightTimer: 0
 };
+
+const powerupKinds: PowerupKind[] = ["heal", "syrup", "haste", "might"];
+const powerupColors: Record<PowerupKind, string> = {
+  heal: "#7cffb2",
+  syrup: "#ffd166",
+  haste: "#82f7ff",
+  might: "#ff8bd1"
+};
+
+const spellbook: SpellDef[] = [
+  { id: "waffle", name: "Waffle Bolt", cooldown: 1.65, cast: castWaffleBolt },
+  { id: "syrupNova", name: "Syrup Nova", cooldown: 2.15, cast: castSyrupNova },
+  { id: "candleSpiral", name: "Candle Spiral", cooldown: 1.95, cast: castCandleSpiral },
+  { id: "griddleSlam", name: "Griddle Slam", cooldown: 2.45, cast: castGriddleSlam }
+];
 
 let mode: Mode = "title";
 let enemyId = 0;
@@ -692,6 +726,7 @@ const enemies: Enemy[] = [];
 const projectiles: Projectile[] = [];
 const particles: Particle[] = [];
 const traps: Trap[] = [];
+const powerups: Powerup[] = [];
 const boonsOwned = new Set<BoonId>();
 
 buildArena();
@@ -700,7 +735,7 @@ resize();
 
 window.addEventListener("resize", resize);
 window.addEventListener("keydown", (event) => {
-  if (event.code === "Space") {
+  if (event.code === "Space" || event.code === "Tab") {
     event.preventDefault();
   }
 
@@ -723,6 +758,10 @@ window.addEventListener("keydown", (event) => {
     dropTrap();
   } else if (event.code === "KeyJ") {
     strike();
+  } else if (event.code === "KeyR" || event.code === "Tab") {
+    cycleSpellSelection(1);
+  } else if (event.code.startsWith("Digit")) {
+    selectSpell(Number(event.code.replace("Digit", "")) - 1);
   }
 });
 
@@ -769,8 +808,30 @@ window.__waffleTest = {
     spawnRoom(THREE.MathUtils.clamp(Math.floor(index), 0, rooms.length - 1));
     updateHud();
   },
-  previewPowerups(): void {},
-  cycleSpell(): void {},
+  previewPowerups(): void {
+    mode = "playing";
+    overlay.innerHTML = "";
+    player.pos.set(0, -3);
+    clearArray(powerups, removePowerup);
+
+    for (let i = 0; i < powerupKinds.length; i += 1) {
+      spawnPowerup(powerupKinds[i]!, player.pos.clone().add(new THREE.Vector2((i - 1.5) * 1.3, 1.6)));
+    }
+
+    updateHud();
+  },
+  previewSpell(index: number): void {
+    mode = "playing";
+    overlay.innerHTML = "";
+    player.pos.set(0, -3);
+    player.specialCooldown = 0;
+    selectSpell(index, false);
+    activeSpell().cast();
+    updateHud();
+  },
+  cycleSpell(): void {
+    cycleSpellSelection(1);
+  },
   roomSummary() {
     const arenaIds = [...new Set(rooms.map((room) => room.arena))];
     const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
@@ -779,8 +840,8 @@ window.__waffleTest = {
       bossRoomCount: rooms.filter((room) => room.enemies.some(isBossKind)).length,
       arenaIds,
       enemyKinds,
-      spellIds: ["waffle", "syrupNova", "candleSpiral", "griddleSlam"],
-      powerupKinds: ["heal", "syrup", "haste", "might"],
+      spellIds: spellbook.map((spell) => spell.id),
+      powerupKinds: [...powerupKinds],
       roomNames: rooms.map((room) => room.name)
     };
   }
@@ -833,11 +894,15 @@ function startGame(): void {
   player.dashBurst = false;
   player.trapPower = 1;
   player.syrupPower = 1;
+  player.spellIndex = 0;
+  player.hasteTimer = 0;
+  player.mightTimer = 0;
   boonsOwned.clear();
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
   clearArray(particles, removeParticle);
   clearArray(traps, removeTrap);
+  clearArray(powerups, removePowerup);
   spawnRoom(0);
   updateHud();
 }
@@ -846,6 +911,7 @@ function spawnRoom(index: number): void {
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
   clearArray(traps, removeTrap);
+  clearArray(powerups, removePowerup);
   player.room = index;
   waveClearTimer = 0;
 
@@ -883,6 +949,7 @@ function updateGame(dt: number): void {
   updateEnemies(dt);
   updateProjectiles(dt);
   updateTraps(dt);
+  updatePowerups(dt);
   updateParticles(dt);
   updateCamera(dt);
   updateHud();
@@ -894,7 +961,7 @@ function updateGame(dt: number): void {
   if (mode === "playing" && enemies.length === 0) {
     waveClearTimer += dt;
 
-    if (waveClearTimer > 0.65) {
+    if (waveClearTimer > (powerups.length > 0 ? 1.8 : 0.65)) {
       finishRoom();
     }
   }
@@ -906,6 +973,8 @@ function updateCooldowns(dt: number): void {
   player.specialCooldown = Math.max(0, player.specialCooldown - dt);
   player.trapCooldown = Math.max(0, player.trapCooldown - dt);
   player.invulnerable = Math.max(0, player.invulnerable - dt);
+  player.hasteTimer = Math.max(0, player.hasteTimer - dt);
+  player.mightTimer = Math.max(0, player.mightTimer - dt);
   shake = Math.max(0, shake - dt * 4.5);
 }
 
@@ -941,7 +1010,8 @@ function updatePlayer(dt: number): void {
     player.vel.copy(player.dashVel);
     player.invulnerable = Math.max(player.invulnerable, 0.07);
   } else {
-    player.vel.copy(moveInput).multiplyScalar(player.speed);
+    const haste = player.hasteTimer > 0 ? 1.32 : 1;
+    player.vel.copy(moveInput).multiplyScalar(player.speed * haste);
   }
 
   player.pos.addScaledVector(player.vel, dt);
@@ -959,6 +1029,7 @@ function updatePlayer(dt: number): void {
 
   hero.position.set(player.pos.x, player.pos.y, 3);
   hero.renderOrder = renderOrderFor(player.pos.y, 100);
+  hero.material.color.set(player.hasteTimer > 0 ? "#d9fff9" : player.mightTimer > 0 ? "#ffe3a6" : "#ffffff");
   hero.material.opacity = player.invulnerable > 0 ? 0.68 + Math.sin(titlePulse * 44) * 0.18 : 1;
 }
 
@@ -1068,6 +1139,23 @@ function updateProjectiles(dt: number): void {
     projectile.sprite.material.rotation += projectile.spin * dt;
     projectile.sprite.renderOrder = renderOrderFor(projectile.pos.y, 150);
 
+    if (projectile.trailColor) {
+      projectile.trailTimer -= dt;
+
+      if (projectile.trailTimer <= 0) {
+        projectile.trailTimer = 0.045;
+        spawnParticle(
+          projectile.pos.clone(),
+          projectile.vel.clone().multiplyScalar(-0.04),
+          0.24,
+          projectile.radius * 0.55,
+          0.02,
+          projectile.trailColor,
+          textures.spark
+        );
+      }
+    }
+
     if (Math.abs(projectile.pos.x) > world.halfWidth + 1 || Math.abs(projectile.pos.y) > world.halfHeight + 1 || projectile.life <= 0) {
       removeProjectile(projectile);
       continue;
@@ -1122,6 +1210,49 @@ function updateTraps(dt: number): void {
 
     if (trap.life <= 0) {
       removeTrap(trap);
+    }
+  }
+}
+
+function updatePowerups(dt: number): void {
+  for (const powerup of [...powerups]) {
+    powerup.life -= dt;
+    powerup.phase += dt;
+
+    const toPlayer = tmp.copy(player.pos).sub(powerup.pos);
+    const distance = Math.max(0.001, toPlayer.length());
+
+    if (distance < 4.8) {
+      const pull = THREE.MathUtils.lerp(10, 2.2, distance / 4.8);
+      powerup.vel.addScaledVector(toPlayer.divideScalar(distance), pull * dt);
+    }
+
+    if (powerup.vel.lengthSq() > 42) {
+      powerup.vel.setLength(6.5);
+    }
+
+    powerup.pos.addScaledVector(powerup.vel, dt);
+    powerup.vel.multiplyScalar(0.9);
+    keepInArena(powerup.pos, powerup.radius);
+
+    const pulse = 1 + Math.sin(powerup.phase * 7) * 0.08;
+    powerup.sprite.position.set(powerup.pos.x, powerup.pos.y + Math.sin(powerup.phase * 4) * 0.12, 5);
+    powerup.sprite.scale.setScalar(0.62 * pulse);
+    powerup.sprite.material.opacity = THREE.MathUtils.clamp(powerup.life / 0.7, 0, 1);
+    powerup.sprite.material.rotation += dt * 1.7;
+    powerup.sprite.renderOrder = renderOrderFor(powerup.pos.y, 400);
+
+    if (distance < powerup.radius + player.radius + 0.12) {
+      applyPowerup(powerup.kind);
+      burst(powerup.pos, powerupColors[powerup.kind], 16);
+      spawnShockwave(powerup.pos, powerupColors[powerup.kind], 0.7);
+      removePowerup(powerup);
+      continue;
+    }
+
+    if (powerup.life <= 0) {
+      burst(powerup.pos, powerupColors[powerup.kind], 5);
+      removePowerup(powerup);
     }
   }
 }
@@ -1320,6 +1451,7 @@ function updateHud(): void {
   attackChip.textContent = player.attackCooldown <= 0 ? "Ready" : player.attackCooldown.toFixed(1);
   dashChip.textContent = player.dashCooldown <= 0 ? "Ready" : player.dashCooldown.toFixed(1);
   specialChip.textContent = player.specialCooldown <= 0 ? "Ready" : player.specialCooldown.toFixed(1);
+  specialLabel.textContent = activeSpell().name;
 }
 
 function strike(): void {
@@ -1332,6 +1464,7 @@ function strike(): void {
   lastAim.copy(aim);
   const origin = player.pos.clone().addScaledVector(aim, 0.25);
   spawnSlash(origin, aim, 1);
+  const strikeDamage = player.damage * (player.mightTimer > 0 ? 1.35 : 1);
 
   let hit = false;
 
@@ -1347,12 +1480,12 @@ function strike(): void {
 
     if (angle > 0.42) {
       hit = true;
-      damageEnemy(enemy, player.damage, aim.clone().multiplyScalar(4.6));
+      damageEnemy(enemy, strikeDamage, aim.clone().multiplyScalar(4.6));
 
       if (player.echoStrike) {
         window.setTimeout(() => {
           if (mode === "playing" && enemies.includes(enemy)) {
-            damageEnemy(enemy, player.damage * 0.38, aim.clone().multiplyScalar(2));
+            damageEnemy(enemy, strikeDamage * 0.38, aim.clone().multiplyScalar(2));
             spawnSlash(enemy.pos.clone(), aim, 0.58);
           }
         }, 90);
@@ -1387,27 +1520,134 @@ function dash(): void {
   }
 }
 
+function activeSpell(): SpellDef {
+  return spellbook[player.spellIndex % spellbook.length] ?? spellbook[0]!;
+}
+
+function selectSpell(index: number, showFx = true): void {
+  if (!Number.isFinite(index) || index < 0 || index >= spellbook.length) {
+    return;
+  }
+
+  player.spellIndex = index;
+
+  if (showFx && mode === "playing") {
+    burst(player.pos, "#d7e7ff", 5);
+  }
+
+  updateHud();
+}
+
+function cycleSpellSelection(direction: number): void {
+  const next = (player.spellIndex + direction + spellbook.length) % spellbook.length;
+  selectSpell(next);
+}
+
+function spellCooldown(spell: SpellDef): number {
+  return Math.max(0.55, spell.cooldown * (player.specialRate / 1.65));
+}
+
 function special(): void {
   if (mode !== "playing" || player.specialCooldown > 0) {
     return;
   }
 
+  const spell = activeSpell();
+  spell.cast();
+  player.specialCooldown = spellCooldown(spell);
+  updateHud();
+}
+
+function castWaffleBolt(): void {
   const dir = aimDirection();
-  const projectile = createProjectile({
+  lastAim.copy(dir);
+  createProjectile({
     texture: textures.waffle,
     pos: player.pos.clone().addScaledVector(dir, 0.7),
-    vel: dir.multiplyScalar(9.6),
+    vel: dir.multiplyScalar(9.8),
     radius: 0.48,
     scale: 0.82,
     damage: 30 * player.syrupPower,
     team: "player",
-    life: 1.6,
+    life: 1.65,
     pierce: Math.floor(1 + player.syrupPower),
-    spin: 9
+    spin: 9,
+    color: "#fff3a4",
+    trailColor: "#ffd166"
   });
-  projectile.sprite.material.color.set("#fff3a4");
-  player.specialCooldown = player.specialRate;
-  burst(player.pos, "#ffd166", 8);
+  burst(player.pos, "#ffd166", 9);
+}
+
+function castSyrupNova(): void {
+  const count = 12;
+
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * Math.PI * 2 + titlePulse * 0.35;
+    const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+    createProjectile({
+      texture: textures.syrup,
+      pos: player.pos.clone().addScaledVector(dir, 0.55),
+      vel: dir.multiplyScalar(6.8),
+      radius: 0.32,
+      scale: 0.5,
+      damage: 17 * player.syrupPower,
+      team: "player",
+      life: 1.35,
+      pierce: 0,
+      spin: 7,
+      color: "#ff9a5f",
+      trailColor: "#ffcf70"
+    });
+  }
+
+  spawnShockwave(player.pos, "#ffb65c", 1.05);
+  burst(player.pos, "#ffcf70", 18);
+  shake = Math.max(shake, 0.22);
+}
+
+function castCandleSpiral(): void {
+  const aim = aimDirection();
+  lastAim.copy(aim);
+  const base = Math.atan2(aim.y, aim.x);
+
+  for (let i = 0; i < 7; i += 1) {
+    const spread = (i - 3) * 0.18;
+    const angle = base + spread;
+    const dir = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+    createProjectile({
+      texture: textures.flame,
+      pos: player.pos.clone().addScaledVector(dir, 0.65),
+      vel: dir.multiplyScalar(7.4 + i * 0.22),
+      radius: 0.36,
+      scale: 0.58,
+      damage: 21 * player.syrupPower,
+      team: "player",
+      life: 1.75,
+      pierce: 1,
+      spin: i % 2 === 0 ? 6 : -6,
+      color: i % 2 === 0 ? "#9be7ff" : "#ffd166",
+      trailColor: i % 2 === 0 ? "#8bdcff" : "#ffe08a"
+    });
+  }
+
+  burst(player.pos, "#a9dcff", 12);
+}
+
+function castGriddleSlam(): void {
+  const radius = 3.25 + player.syrupPower * 0.25;
+  spawnShockwave(player.pos, "#ff8066", 1.45);
+  burst(player.pos, "#ffb86b", 24);
+  shake = Math.max(shake, 0.42);
+
+  for (const enemy of [...enemies]) {
+    const delta = enemy.pos.clone().sub(player.pos);
+    const dist = Math.max(0.001, delta.length());
+
+    if (dist <= radius + enemy.radius) {
+      const falloff = THREE.MathUtils.clamp(1 - dist / (radius + enemy.radius), 0.35, 1);
+      damageEnemy(enemy, 34 * player.syrupPower * falloff, delta.divideScalar(dist).multiplyScalar(6.2));
+    }
+  }
 }
 
 function dropTrap(): void {
@@ -1445,8 +1685,81 @@ function damageEnemy(enemy: Enemy, amount: number, knockback: V2): void {
   if (enemy.hp <= 0) {
     player.score += enemyStats[enemy.kind].score;
     burst(enemy.pos, "#fff2a8", enemy.boss ? 34 : 16);
+    maybeDropPowerup(enemy);
     removeEnemy(enemy);
   }
+}
+
+function maybeDropPowerup(enemy: Enemy): void {
+  if (enemy.boss) {
+    spawnPowerup("heal", enemy.pos.clone().add(new THREE.Vector2(-0.7, 0.35)));
+    spawnPowerup(randomBuffPowerup(), enemy.pos.clone().add(new THREE.Vector2(0.7, 0.35)));
+    return;
+  }
+
+  const wounded = player.hp < player.maxHp * 0.58;
+  const dropChance = wounded ? 0.42 : 0.3;
+
+  if (Math.random() > dropChance) {
+    return;
+  }
+
+  const roll = Math.random();
+  const kind: PowerupKind = wounded && roll < 0.48
+    ? "heal"
+    : roll < 0.64
+      ? "syrup"
+      : roll < 0.82
+        ? "haste"
+        : "might";
+  spawnPowerup(kind, enemy.pos.clone());
+}
+
+function randomBuffPowerup(): PowerupKind {
+  const buffs: PowerupKind[] = ["syrup", "haste", "might"];
+  return buffs[Math.floor(Math.random() * buffs.length)] ?? "syrup";
+}
+
+function spawnPowerup(kind: PowerupKind, pos: V2): void {
+  const angle = randomRange(0, Math.PI * 2);
+  const material = new THREE.SpriteMaterial({
+    map: textures.orb,
+    transparent: true,
+    depthTest: false,
+    color: powerupColors[kind]
+  });
+  const sprite = new THREE.Sprite(material);
+  sprite.position.set(pos.x, pos.y, 5);
+  sprite.scale.setScalar(0.62);
+  sprite.renderOrder = 2400;
+  fxGroup.add(sprite);
+  powerups.push({
+    sprite,
+    kind,
+    pos,
+    vel: new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(randomRange(1.5, 2.9)),
+    radius: 0.45,
+    life: 8.5,
+    phase: randomRange(0, Math.PI * 2)
+  });
+  spawnParticle(pos.clone(), new THREE.Vector2(), 0.34, 0.22, 0.02, powerupColors[kind], textures.star);
+}
+
+function applyPowerup(kind: PowerupKind): void {
+  if (kind === "heal") {
+    player.hp = Math.min(player.maxHp, player.hp + 32);
+  } else if (kind === "syrup") {
+    player.specialCooldown = Math.max(0, player.specialCooldown - 0.85);
+    player.score += 25;
+  } else if (kind === "haste") {
+    player.hasteTimer = Math.max(player.hasteTimer, 6.2);
+    player.dashCooldown = Math.max(0, player.dashCooldown - 0.25);
+  } else if (kind === "might") {
+    player.mightTimer = Math.max(player.mightTimer, 6.8);
+    player.attackCooldown = Math.max(0, player.attackCooldown - 0.18);
+  }
+
+  updateHud();
 }
 
 function damagePlayer(amount: number): void {
@@ -1542,7 +1855,8 @@ function enemyShoot(enemy: Enemy): void {
     team: "enemy",
     life: 3,
     pierce: 0,
-    spin: -4
+    spin: -4,
+    trailColor: enemy.kind === "candleBoss" ? "#8bdcff" : "#ffb65c"
   });
   projectile.sprite.material.color.set(enemy.kind === "candleBoss" ? "#a9dcff" : "#ffb65c");
 }
@@ -1568,7 +1882,8 @@ function bossAttack(enemy: Enemy): void {
       team: "enemy",
       life: 2.8,
       pierce: 0,
-      spin: 4
+      spin: 4,
+      trailColor: enemy.kind === "candleBoss" ? "#8bdcff" : enemy.kind === "griddleBoss" ? "#ff9859" : "#ffd166"
     });
     projectile.sprite.material.color.set(enemy.kind === "candleBoss" ? "#a9dcff" : enemy.kind === "griddleBoss" ? "#ff9859" : "#ffd166");
   }
@@ -1583,6 +1898,7 @@ function bossAttack(enemy: Enemy): void {
     spawnEnemy(summon, enemy.pos.clone().add(new THREE.Vector2(Math.cos(angle), Math.sin(angle)).multiplyScalar(2.4)));
   }
 
+  spawnShockwave(enemy.pos, enemy.kind === "candleBoss" ? "#8bdcff" : "#ff9859", enemy.boss ? 1.2 : 0.85);
   shake = Math.max(shake, 0.2);
 }
 
@@ -1597,11 +1913,14 @@ function createProjectile(options: {
   life: number;
   pierce: number;
   spin: number;
+  color?: string;
+  trailColor?: string;
 }): Projectile {
   const material = new THREE.SpriteMaterial({
     map: options.texture,
     transparent: true,
-    depthTest: false
+    depthTest: false,
+    color: options.color ?? "#ffffff"
   });
   const sprite = new THREE.Sprite(material);
   sprite.scale.setScalar(options.scale);
@@ -1620,7 +1939,7 @@ function createProjectile(options: {
     maxLife: options.life,
     pierce: options.pierce,
     spin: options.spin,
-    trailColor: "",
+    trailColor: options.trailColor ?? "",
     trailTimer: 0,
     hitIds: new Set()
   };
@@ -1667,9 +1986,21 @@ function burst(pos: V2, color: string, count: number): void {
   }
 }
 
-function spawnParticle(pos: V2, vel: V2, life: number, startScale: number, endScale: number, color: string): void {
+function spawnShockwave(pos: V2, color: string, scale: number): void {
+  spawnParticle(pos.clone(), new THREE.Vector2(), 0.34, scale, scale * 2.4, color, textures.ring);
+}
+
+function spawnParticle(
+  pos: V2,
+  vel: V2,
+  life: number,
+  startScale: number,
+  endScale: number,
+  color: string,
+  texture: THREE.Texture = textures.spark
+): void {
   const material = new THREE.SpriteMaterial({
-    map: textures.spark,
+    map: texture,
     transparent: true,
     depthTest: false,
     color
@@ -1794,6 +2125,8 @@ function setupTouchControls(): void {
         special();
       } else if (act === "trap") {
         dropTrap();
+      } else if (act === "cycle") {
+        cycleSpellSelection(1);
       }
     });
   });
@@ -1875,6 +2208,17 @@ function removeTrap(trap: Trap): void {
 
   fxGroup.remove(trap.sprite);
   trap.sprite.material.dispose();
+}
+
+function removePowerup(powerup: Powerup): void {
+  const index = powerups.indexOf(powerup);
+
+  if (index >= 0) {
+    powerups.splice(index, 1);
+  }
+
+  fxGroup.remove(powerup.sprite);
+  powerup.sprite.material.dispose();
 }
 
 function clearArray<T>(items: T[], remove: (item: T) => void): void {
@@ -2227,6 +2571,97 @@ function makeTrapTexture(): THREE.CanvasTexture {
     ctx.lineWidth = 9;
     ctx.strokeRect(-44, -44, 88, 88);
   });
+}
+
+function makeOrbTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    const c = size / 2;
+    const glow = ctx.createRadialGradient(c, c, 8, c, c, c * 0.48);
+    glow.addColorStop(0, "rgba(255, 255, 255, 1)");
+    glow.addColorStop(0.42, "rgba(255, 255, 255, 0.86)");
+    glow.addColorStop(1, "rgba(255, 255, 255, 0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(c, c, c * 0.48, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.translate(c, c);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 54, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
+    ctx.beginPath();
+    ctx.arc(-18, -18, 16, 0, Math.PI * 2);
+    ctx.fill();
+  }, 160);
+}
+
+function makeRingTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.96)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 76, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 54, 0, Math.PI * 2);
+    ctx.stroke();
+  }, 192);
+}
+
+function makeStarTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+
+    for (let i = 0; i < 10; i += 1) {
+      const radius = i % 2 === 0 ? 58 : 24;
+      const angle = -Math.PI / 2 + (i / 10) * Math.PI * 2;
+      const x = Math.cos(angle) * radius;
+      const y = Math.sin(angle) * radius;
+
+      if (i === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+
+    ctx.closePath();
+    ctx.fill();
+  }, 128);
+}
+
+function makeFlameTexture(): THREE.CanvasTexture {
+  return makeTexture((ctx, size) => {
+    ctx.translate(size / 2, size / 2);
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = "#190e1d";
+    const gradient = ctx.createLinearGradient(0, -74, 0, 70);
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.38, "#ffd166");
+    gradient.addColorStop(0.78, "#ff6f8f");
+    gradient.addColorStop(1, "#7c3aed");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(0, -82);
+    ctx.bezierCurveTo(58, -24, 46, 44, 0, 78);
+    ctx.bezierCurveTo(-48, 42, -58, -18, 0, -82);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+    ctx.beginPath();
+    ctx.moveTo(4, -40);
+    ctx.bezierCurveTo(28, -6, 20, 32, -4, 48);
+    ctx.bezierCurveTo(-22, 20, -18, -8, 4, -40);
+    ctx.fill();
+  }, 192);
 }
 
 function drawEyes(ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string): void {

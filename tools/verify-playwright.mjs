@@ -84,6 +84,24 @@ for (const config of [
     });
   }
 
+  await page.evaluate(() => {
+    window.__waffleTest?.previewPowerups();
+  });
+  await page.waitForTimeout(350);
+  const powerupPixels = await sampleCanvas(page);
+
+  const spellSamples = [];
+  for (let index = 0; index < roomSummary.spellIds.length; index += 1) {
+    await page.evaluate((spellIndex) => {
+      window.__waffleTest?.previewSpell(spellIndex);
+    }, index);
+    await page.waitForTimeout(280);
+    spellSamples.push({
+      id: roomSummary.spellIds[index],
+      pixels: await sampleCanvas(page)
+    });
+  }
+
   await page.screenshot({ path: resolve(outDir, `${config.name}-final-boss.png`), fullPage: true });
 
   results.push({
@@ -92,6 +110,8 @@ for (const config of [
     playingPixels,
     roomSummary,
     roomSamples,
+    powerupPixels,
+    spellSamples,
     errors,
     changedSamples: Math.abs(playingPixels.hash - titlePixels.hash)
   });
@@ -106,19 +126,28 @@ await writeFile(resolve(outDir, "report.json"), JSON.stringify(results, null, 2)
 for (const result of results) {
   const titleOk = result.titlePixels.nonBlankRatio > 0.08 && result.titlePixels.uniqueColors > 24;
   const playingOk = result.playingPixels.nonBlankRatio > 0.08 && result.playingPixels.uniqueColors > 24;
+  const powerupsOk = result.powerupPixels.nonBlankRatio > 0.08 && result.powerupPixels.uniqueColors > 24;
   const changedOk = result.changedSamples > 1000;
   const requiredEnemyKinds = ["burger", "shade", "mage", "golem", "griddleBoss", "candleBoss", "burgerBoss"];
+  const requiredSpellIds = ["waffle", "syrupNova", "candleSpiral", "griddleSlam"];
+  const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
   const summaryOk =
     result.roomSummary.roomCount >= 8
     && result.roomSummary.bossRoomCount >= 3
     && result.roomSummary.arenaIds.length >= 5
-    && requiredEnemyKinds.every((kind) => result.roomSummary.enemyKinds.includes(kind));
+    && requiredEnemyKinds.every((kind) => result.roomSummary.enemyKinds.includes(kind))
+    && requiredSpellIds.every((id) => result.roomSummary.spellIds.includes(id))
+    && requiredPowerupKinds.every((kind) => result.roomSummary.powerupKinds.includes(kind));
   const roomSamplesOk =
     result.roomSamples.length === result.roomSummary.roomCount
     && new Set(result.roomSamples.map((sample) => sample.pixels.hash)).size >= 5
     && result.roomSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
+  const spellSamplesOk =
+    result.spellSamples.length >= requiredSpellIds.length
+    && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
+    && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !changedOk || !summaryOk || !roomSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }
