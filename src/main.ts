@@ -35,6 +35,8 @@ type TechniqueId =
   | "heavyServe"
   | "swiftFrosting";
 type Team = "player" | "enemy";
+type InputAction = "attack" | "dash" | "special" | "trap";
+type InputMode = "pointer" | "touch" | "gamepad";
 type BoonId =
   | "batter"
   | "birthday"
@@ -76,6 +78,21 @@ declare global {
         techniqueSlots: number;
         spellPower: number;
         weaponPower: number;
+      };
+      inputState: () => {
+        mode: Mode;
+        pos: { x: number; y: number };
+        lastAim: { x: number; y: number };
+        spellIndex: number;
+        weaponIndex: number;
+        attackCooldown: number;
+        dashCooldown: number;
+        specialCooldown: number;
+        trapCooldown: number;
+        gamepadActive: boolean;
+        gamepadName: string;
+        activeInput: InputMode;
+        touchButtons: string[];
       };
       roomSummary: () => {
         roomCount: number;
@@ -622,6 +639,7 @@ const css = `
     padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
     justify-content: space-between;
     align-items: end;
+    user-select: none;
   }
 
   #stick {
@@ -658,6 +676,7 @@ const css = `
     min-height: 58px;
     padding: 9px;
     font-size: 13px;
+    touch-action: none;
   }
 
   .touchButtons button:first-child {
@@ -920,8 +939,16 @@ const keys = new Set<string>();
 const pointerWorld = new THREE.Vector2(2, -1);
 const lastAim = new THREE.Vector2(1, 0);
 const moveInput = new THREE.Vector2();
+const gamepadMove = new THREE.Vector2();
+const gamepadAim = new THREE.Vector2(1, 0);
+const previousGamepadButtons = new Set<number>();
+const heldActions = new Set<InputAction>();
 const tmp = new THREE.Vector2();
 const tmp2 = new THREE.Vector2();
+let gamepadActive = false;
+let gamepadAimActive = false;
+let gamepadName = "";
+let activeInput: InputMode = "pointer";
 
 const textureLoader = new THREE.TextureLoader();
 
@@ -1265,10 +1292,12 @@ window.addEventListener("keyup", (event) => {
 });
 
 renderer.domElement.addEventListener("pointermove", (event) => {
+  activeInput = "pointer";
   updatePointer(event.clientX, event.clientY);
 });
 
 renderer.domElement.addEventListener("pointerdown", (event) => {
+  activeInput = "pointer";
   updatePointer(event.clientX, event.clientY);
 
   if (mode === "title") {
@@ -1395,6 +1424,23 @@ window.__waffleTest = {
       weaponPower: player.weaponPower
     };
   },
+  inputState() {
+    return {
+      mode,
+      pos: { x: player.pos.x, y: player.pos.y },
+      lastAim: { x: lastAim.x, y: lastAim.y },
+      spellIndex: player.spellIndex,
+      weaponIndex: player.weaponIndex,
+      attackCooldown: player.attackCooldown,
+      dashCooldown: player.dashCooldown,
+      specialCooldown: player.specialCooldown,
+      trapCooldown: player.trapCooldown,
+      gamepadActive,
+      gamepadName,
+      activeInput,
+      touchButtons: [...touch.querySelectorAll<HTMLButtonElement>("button[data-act]")].map((button) => button.textContent?.trim() ?? "")
+    };
+  },
   roomSummary() {
     const arenaIds = [...new Set(rooms.map((room) => room.arena))];
     const enemyKinds = [...new Set(rooms.flatMap((room) => room.enemies))];
@@ -1422,6 +1468,7 @@ function loop(now: number): void {
   const dt = Math.min((now - last) / 1000, 0.033);
   last = now;
   titlePulse += dt;
+  updateGamepads();
 
   if (mode === "playing") {
     updateGame(dt);
@@ -1482,6 +1529,7 @@ function startGame(): void {
   resetWeaponProgress();
   boonsOwned.clear();
   techniquesOwned.clear();
+  heldActions.clear();
   clearArray(enemies, removeEnemy);
   clearArray(projectiles, removeProjectile);
   clearArray(particles, removeParticle);
@@ -1530,6 +1578,7 @@ function spawnRoom(index: number): void {
 function updateGame(dt: number): void {
   updateCooldowns(dt);
   updateInput();
+  updateHeldActions();
   updatePlayer(dt);
   updateHeroSprite(dt);
   updateEnemies(dt);
@@ -1585,10 +1634,174 @@ function updateInput(): void {
   }
 
   moveInput.add(touchMove);
+  moveInput.add(gamepadMove);
 
   if (moveInput.lengthSq() > 1) {
     moveInput.normalize();
   }
+}
+
+function updateGamepads(): void {
+  const gamepad = firstGamepad();
+
+  if (!gamepad) {
+    gamepadActive = false;
+    gamepadAimActive = false;
+    gamepadName = "";
+    gamepadMove.set(0, 0);
+    previousGamepadButtons.clear();
+    if (activeInput === "gamepad") {
+      activeInput = "pointer";
+    }
+    return;
+  }
+
+  gamepadActive = true;
+  gamepadName = gamepad.id || "Controller";
+
+  const pressed = new Set<number>();
+  for (let index = 0; index < gamepad.buttons.length; index += 1) {
+    if (gamepadButtonPressed(gamepad, index)) {
+      pressed.add(index);
+    }
+  }
+
+  gamepadMove.set(
+    applyStickDeadzone(gamepad.axes[0] ?? 0),
+    -applyStickDeadzone(gamepad.axes[1] ?? 0)
+  );
+
+  if (gamepadMove.lengthSq() > 1) {
+    gamepadMove.normalize();
+  }
+
+  gamepadAim.set(
+    applyStickDeadzone(gamepad.axes[2] ?? 0),
+    -applyStickDeadzone(gamepad.axes[3] ?? 0)
+  );
+  gamepadAimActive = gamepadAim.lengthSq() > 0.02;
+
+  if (pressed.size > 0 || gamepadMove.lengthSq() > 0.02 || gamepadAimActive) {
+    activeInput = "gamepad";
+  }
+
+  if (gamepadAimActive) {
+    gamepadAim.normalize();
+    pointerWorld.copy(player.pos).add(gamepadAim.clone().multiplyScalar(4));
+    lastAim.copy(gamepadAim);
+  }
+
+  const pressedOnce = (index: number) => pressed.has(index) && !previousGamepadButtons.has(index);
+
+  if (mode === "title" || mode === "won" || mode === "lost") {
+    if (pressedOnce(0) || pressedOnce(9)) {
+      startGame();
+    }
+
+    rememberGamepadButtons(pressed);
+    return;
+  }
+
+  if (mode !== "playing") {
+    rememberGamepadButtons(pressed);
+    return;
+  }
+
+  if (pressedOnce(0)) {
+    performAction("dash");
+  }
+
+  if (pressed.has(2) || pressed.has(7)) {
+    performAction("attack");
+  }
+
+  if (pressed.has(3) || pressed.has(6)) {
+    performAction("special");
+  }
+
+  if (pressed.has(1)) {
+    performAction("trap");
+  }
+
+  if (pressedOnce(4) || pressedOnce(15)) {
+    cycleSpellSelection(1);
+  }
+
+  if (pressedOnce(14)) {
+    cycleSpellSelection(-1);
+  }
+
+  if (pressedOnce(5) || pressedOnce(12)) {
+    cycleWeaponSelection(1);
+  }
+
+  if (pressedOnce(13)) {
+    cycleWeaponSelection(-1);
+  }
+
+  rememberGamepadButtons(pressed);
+}
+
+function firstGamepad(): Gamepad | null {
+  if (typeof navigator.getGamepads !== "function") {
+    return null;
+  }
+
+  return [...navigator.getGamepads()].find((gamepad): gamepad is Gamepad => Boolean(gamepad?.connected)) ?? null;
+}
+
+function gamepadButtonPressed(gamepad: Gamepad, index: number): boolean {
+  const button = gamepad.buttons[index];
+  return Boolean(button && (button.pressed || button.value > 0.55));
+}
+
+function applyStickDeadzone(value: number): number {
+  const deadzone = 0.18;
+  const abs = Math.abs(value);
+
+  if (abs < deadzone) {
+    return 0;
+  }
+
+  return Math.sign(value) * ((abs - deadzone) / (1 - deadzone));
+}
+
+function rememberGamepadButtons(pressed: Set<number>): void {
+  previousGamepadButtons.clear();
+
+  for (const index of pressed) {
+    previousGamepadButtons.add(index);
+  }
+}
+
+function updateHeldActions(): void {
+  if (heldActions.has("attack")) {
+    performAction("attack");
+  }
+
+  if (heldActions.has("special")) {
+    performAction("special");
+  }
+
+  if (heldActions.has("trap")) {
+    performAction("trap");
+  }
+}
+
+function performAction(action: InputAction): void {
+  if (action === "attack") {
+    strike();
+  } else if (action === "dash") {
+    dash();
+  } else if (action === "special") {
+    special();
+  } else {
+    dropTrap();
+  }
+}
+
+function isInputAction(value: string | undefined): value is InputAction {
+  return value === "attack" || value === "dash" || value === "special" || value === "trap";
 }
 
 function updatePlayer(dt: number): void {
@@ -1604,7 +1817,9 @@ function updatePlayer(dt: number): void {
   player.pos.addScaledVector(player.vel, dt);
   keepInArena(player.pos, player.radius);
 
-  if (player.vel.lengthSq() > 0.08) {
+  if (gamepadAimActive) {
+    lastAim.copy(gamepadAim);
+  } else if (player.vel.lengthSq() > 0.08) {
     lastAim.copy(player.vel).normalize();
   } else {
     tmp.copy(pointerWorld).sub(player.pos);
@@ -2766,6 +2981,16 @@ function knockEnemy(enemy: Enemy, force: V2): void {
 }
 
 function aimDirection(): V2 {
+  if ((activeInput === "gamepad" && !gamepadAimActive) || (activeInput === "touch" && touchMove.lengthSq() < 0.04)) {
+    const assisted = nearestEnemyDirection();
+
+    if (assisted) {
+      lastAim.copy(assisted);
+      pointerWorld.copy(player.pos).add(assisted.clone().multiplyScalar(4));
+      return assisted;
+    }
+  }
+
   const aim = tmp.copy(pointerWorld).sub(player.pos);
 
   if (aim.lengthSq() < 0.08) {
@@ -2773,6 +2998,26 @@ function aimDirection(): V2 {
   }
 
   return aim.normalize().clone();
+}
+
+function nearestEnemyDirection(): V2 | null {
+  let target: Enemy | null = null;
+  let bestDistanceSq = Infinity;
+
+  for (const enemy of enemies) {
+    const distanceSq = enemy.pos.distanceToSquared(player.pos);
+
+    if (distanceSq < bestDistanceSq) {
+      target = enemy;
+      bestDistanceSq = distanceSq;
+    }
+  }
+
+  if (!target || bestDistanceSq > 13 * 13) {
+    return null;
+  }
+
+  return target.pos.clone().sub(player.pos).normalize();
 }
 
 function spawnEnemy(kind: EnemyKind, pos: V2): Enemy {
@@ -3098,6 +3343,7 @@ let activeStick: number | null = null;
 
 function setupTouchControls(): void {
   stick.addEventListener("pointerdown", (event) => {
+    activeInput = "touch";
     activeStick = event.pointerId;
     stick.setPointerCapture(event.pointerId);
     updateStick(event);
@@ -3123,6 +3369,9 @@ function setupTouchControls(): void {
   touch.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((button) => {
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      activeInput = "touch";
+      button.setPointerCapture(event.pointerId);
+      navigator.vibrate?.(12);
 
       if (mode === "title") {
         startGame();
@@ -3131,24 +3380,39 @@ function setupTouchControls(): void {
 
       const act = button.dataset.act;
 
-      if (act === "attack") {
-        strike();
-      } else if (act === "dash") {
-        dash();
-      } else if (act === "special") {
-        special();
-      } else if (act === "trap") {
-        dropTrap();
+      if (isInputAction(act)) {
+        performAction(act);
+
+        if (act !== "dash") {
+          heldActions.add(act);
+        }
       } else if (act === "cycle") {
         cycleSpellSelection(1);
       } else if (act === "weapon") {
         cycleWeaponSelection(1);
       }
     });
+
+    const release = (event: PointerEvent) => {
+      if (button.hasPointerCapture(event.pointerId)) {
+        button.releasePointerCapture(event.pointerId);
+      }
+
+      const act = button.dataset.act;
+
+      if (isInputAction(act)) {
+        heldActions.delete(act);
+      }
+    };
+
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
   });
 }
 
 function updateStick(event: PointerEvent): void {
+  activeInput = "touch";
   const rect = stick.getBoundingClientRect();
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;

@@ -17,7 +17,19 @@ Between rooms you earn one focus point. Focus upgrades either a weapon style or 
 - Cycle weapons: `T`
 - Select spell directly: `1` through `4`
 
-Touch controls are available on mobile, including buttons for cycling the active spell and weapon.
+Touch controls are available on mobile, with a left movement stick, holdable action buttons, spell and weapon cycling, and assisted aim when attacking from touch.
+
+Standard gamepads are supported:
+
+- Left stick: move
+- Right stick: aim
+- A / Cross: dash or start run
+- X / Square or right trigger: strike
+- Y / Triangle or left trigger: cast active spell
+- B / Circle: drop waffle trap
+- Left bumper or D-pad left/right: cycle spells
+- Right bumper or D-pad up/down: cycle weapons
+- Start / Options: start or restart from title and end screens
 
 ## Local Development
 

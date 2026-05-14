@@ -35,7 +35,7 @@ const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Sindre's Waffle Adventure</title>
   <style>
     html, body {
@@ -44,6 +44,9 @@ const html = `<!doctype html>
       height: 100%;
       overflow: hidden;
       background: #17171d;
+      overscroll-behavior: none;
+      touch-action: none;
+      user-select: none;
     }
 
     #app {

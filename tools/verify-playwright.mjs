@@ -20,7 +20,8 @@ const results = [];
 
 for (const config of [
   { name: "desktop", width: 1280, height: 800 },
-  { name: "mobile", width: 390, height: 844 }
+  { name: "mobile", width: 390, height: 844 },
+  { name: "controller", width: 1280, height: 800, gamepad: true }
 ]) {
   const page = await browser.newPage({
     viewport: { width: config.width, height: config.height },
@@ -37,6 +38,43 @@ for (const config of [
     }
   });
 
+  if (config.gamepad) {
+    await page.addInitScript(() => {
+      const axes = [0, 0, 0, 0];
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
+      const gamepad = {
+        id: "Verifier Standard Gamepad",
+        index: 0,
+        connected: true,
+        mapping: "standard",
+        timestamp: 0,
+        axes,
+        buttons
+      };
+
+      window.__setVerifierGamepad = (state = {}) => {
+        const nextAxes = state.axes ?? [0, 0, 0, 0];
+        for (let index = 0; index < axes.length; index += 1) {
+          axes[index] = nextAxes[index] ?? 0;
+        }
+
+        const pressed = new Set(state.buttons ?? []);
+        for (let index = 0; index < buttons.length; index += 1) {
+          buttons[index].pressed = pressed.has(index);
+          buttons[index].touched = pressed.has(index);
+          buttons[index].value = pressed.has(index) ? 1 : 0;
+        }
+
+        gamepad.timestamp += 16;
+      };
+
+      Object.defineProperty(navigator, "getGamepads", {
+        configurable: true,
+        value: () => [gamepad]
+      });
+    });
+  }
+
   await page.goto(html, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("canvas");
   await page.waitForTimeout(700);
@@ -45,8 +83,19 @@ for (const config of [
   const titlePixels = await sampleCanvas(page);
   await page.screenshot({ path: resolve(outDir, `${config.name}-title.png`), fullPage: true });
 
-  await page.getByText("Begin Run").click();
+  if (config.gamepad) {
+    await setGamepad(page, { buttons: [0] });
+    await page.waitForTimeout(120);
+    await setGamepad(page, {});
+  } else {
+    await page.getByText("Begin Run").click();
+  }
+
   await page.waitForTimeout(250);
+
+  let controlState = null;
+  let touchExercise = null;
+  let controllerExercise = null;
 
   if (config.name === "desktop") {
     await page.keyboard.down("KeyD");
@@ -56,9 +105,50 @@ for (const config of [
     await page.keyboard.press("Space");
     await page.keyboard.press("KeyQ");
   } else {
-    await page.getByRole("button", { name: "Strike" }).tap();
-    await page.getByRole("button", { name: "Dash" }).tap();
-    await page.getByRole("button", { name: "Special" }).tap();
+    if (config.gamepad) {
+      const before = await inputState(page);
+      await setGamepad(page, { axes: [0.9, 0, 0, 0] });
+      await page.waitForTimeout(320);
+      const afterMove = await inputState(page);
+      await setGamepad(page, { axes: [0, 0, 1, 0] });
+      await page.waitForTimeout(120);
+      await setGamepad(page, { axes: [0, 0, 1, 0], buttons: [7] });
+      await page.waitForTimeout(80);
+      const afterAttack = await inputState(page);
+      await setGamepad(page, { axes: [0, 0, 1, 0] });
+      await setGamepad(page, { buttons: [0] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [3] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [1] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [4] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      await setGamepad(page, { buttons: [5] });
+      await page.waitForTimeout(80);
+      await setGamepad(page, {});
+      controlState = await inputState(page);
+      controllerExercise = { before, afterMove, afterAttack, after: controlState };
+    } else {
+      await page.getByRole("button", { name: "Strike" }).tap();
+      const afterAttack = await inputState(page);
+      await page.getByRole("button", { name: "Dash" }).tap();
+      const afterDash = await inputState(page);
+      await page.getByRole("button", { name: "Special" }).tap();
+      const afterSpecial = await inputState(page);
+      await page.getByRole("button", { name: "Spell" }).tap();
+      await page.getByRole("button", { name: "Weapon" }).tap();
+      controlState = await inputState(page);
+      touchExercise = { afterAttack, afterDash, afterSpecial, afterCycle: controlState };
+    }
+  }
+
+  if (!controlState) {
+    controlState = await inputState(page);
   }
 
   await page.waitForTimeout(800);
@@ -75,6 +165,53 @@ for (const config of [
       slotCount: slots.length,
       activeCount: slots.filter((slot) => slot.classList.contains("isActive")).length,
       labels: slots.map((slot) => slot.textContent?.replace(/\s+/g, " ").trim() ?? "")
+    };
+  });
+  const touchUi = await page.evaluate(() => {
+    const root = document.querySelector("#touchControls");
+    const stick = document.querySelector("#stick");
+    const buttons = [...document.querySelectorAll("#touchControls button")];
+    const rectFor = (element) => {
+      if (!(element instanceof HTMLElement)) {
+        return null;
+      }
+
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height
+      };
+    };
+    const buttonRects = buttons.map((button) => ({
+      label: button.textContent?.trim() ?? "",
+      rect: rectFor(button)
+    }));
+    const allRects = [rectFor(stick), ...buttonRects.map((entry) => entry.rect)].filter(Boolean);
+    let overlaps = 0;
+
+    for (let i = 0; i < allRects.length; i += 1) {
+      for (let j = i + 1; j < allRects.length; j += 1) {
+        const a = allRects[i];
+        const b = allRects[j];
+        const overlapX = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+        const overlapY = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+
+        if (overlapX * overlapY > 4) {
+          overlaps += 1;
+        }
+      }
+    }
+
+    return {
+      visible: root instanceof HTMLElement && getComputedStyle(root).display !== "none",
+      stick: rectFor(stick),
+      buttons: buttonRects,
+      overlaps,
+      withinViewport: allRects.every((rect) => rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0 && rect.bottom <= window.innerHeight)
     };
   });
   const roomSummary = await page.evaluate(() => {
@@ -165,6 +302,10 @@ for (const config of [
     titlePixels,
     playingPixels,
     spellUi,
+    touchUi,
+    controlState,
+    touchExercise,
+    controllerExercise,
     spellUpgrade,
     weaponUpgrade,
     techniqueChoice,
@@ -194,12 +335,53 @@ for (const result of results) {
   const requiredWeaponIds = ["spatula", "fork", "rollingPin"];
   const requiredTechniqueIds = ["glassBatter", "syrupScholar", "ironBirthday", "dashChef", "trapwright", "greedyGriddle", "heavyServe", "swiftFrosting"];
   const requiredPowerupKinds = ["heal", "syrup", "haste", "might"];
+  const requiredTouchLabels = ["Strike", "Dash", "Special", "Trap", "Spell", "Weapon"];
   const spellUiOk =
     result.spellUi.visible
     && result.spellUi.slotCount >= requiredSpellIds.length
     && result.spellUi.activeCount === 1
     && ["Waffle Bolt", "Syrup Nova", "Candle Spiral", "Griddle Slam"].every((name) => result.spellUi.labels.some((label) => label.includes(name)))
     && (result.viewport.name !== "mobile" || (result.spellUi.bounds && result.spellUi.bounds.height <= 52));
+  const touchUiOk =
+    result.viewport.name !== "mobile"
+    || (
+      result.touchUi.visible
+      && result.touchUi.withinViewport
+      && result.touchUi.overlaps === 0
+      && result.touchUi.stick
+      && result.touchUi.stick.width >= 110
+      && result.touchUi.stick.height >= 110
+      && requiredTouchLabels.every((label) => result.touchUi.buttons.some((button) => button.label === label && button.rect && button.rect.width >= 60 && button.rect.height >= 48))
+    );
+  const mobileControlsOk =
+    result.viewport.name !== "mobile"
+    || (
+      result.controlState.activeInput === "touch"
+      && result.touchExercise
+      && result.touchExercise.afterAttack.attackCooldown > 0
+      && result.touchExercise.afterDash.dashCooldown > 0
+      && result.touchExercise.afterSpecial.specialCooldown > 0
+      && result.controlState.spellIndex === 1
+      && result.controlState.weaponIndex === 1
+      && requiredTouchLabels.every((label) => result.controlState.touchButtons.includes(label))
+    );
+  const controllerControlsOk =
+    !result.viewport.gamepad
+    || (
+      result.controlState.gamepadActive === true
+      && result.controlState.activeInput === "gamepad"
+      && result.controlState.gamepadName.includes("Verifier")
+      && result.controllerExercise
+      && result.controllerExercise.afterMove.pos.x > result.controllerExercise.before.pos.x + 0.25
+      && result.controllerExercise.afterAttack.lastAim.x > 0.55
+      && Math.abs(result.controllerExercise.afterAttack.lastAim.y) < 0.45
+      && result.controllerExercise.afterAttack.attackCooldown > 0
+      && result.controllerExercise.after.dashCooldown > 0
+      && result.controllerExercise.after.specialCooldown > 0
+      && result.controllerExercise.after.trapCooldown > 0
+      && result.controllerExercise.after.spellIndex === 1
+      && result.controllerExercise.after.weaponIndex === 1
+    );
   const spellUpgradeOk =
     result.spellUpgrade.upgraded === true
     && result.spellUpgrade.after.levels.syrupNova === result.spellUpgrade.before.levels.syrupNova + 1
@@ -239,7 +421,7 @@ for (const result of results) {
     && new Set(result.spellSamples.map((sample) => sample.pixels.hash)).size >= 3
     && result.spellSamples.every((sample) => sample.pixels.nonBlankRatio > 0.08 && sample.pixels.uniqueColors > 24);
 
-  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
+  if (!titleOk || !playingOk || !powerupsOk || !changedOk || !spellUiOk || !touchUiOk || !mobileControlsOk || !controllerControlsOk || !spellUpgradeOk || !weaponUpgradeOk || !techniqueChoiceOk || !pickupTextOk || !summaryOk || !roomSamplesOk || !spellSamplesOk || result.errors.length > 0) {
     console.error(JSON.stringify(result, null, 2));
     process.exitCode = 1;
   }
@@ -309,5 +491,21 @@ async function waitForDrawableCanvas(page) {
 
     const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
     return Boolean(gl && gl.drawingBufferWidth > 0 && gl.drawingBufferHeight > 0);
+  });
+}
+
+async function setGamepad(page, state) {
+  await page.evaluate((nextState) => {
+    window.__setVerifierGamepad?.(nextState);
+  }, state);
+}
+
+async function inputState(page) {
+  return page.evaluate(() => {
+    if (!window.__waffleTest) {
+      throw new Error("Missing __waffleTest hook");
+    }
+
+    return window.__waffleTest.inputState();
   });
 }
